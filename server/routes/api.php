@@ -4,6 +4,7 @@ use App\Http\Controllers\API\v1\CategoryController;
 use App\Http\Controllers\API\v1\DashboardController;
 use App\Http\Controllers\API\v1\ProductController;
 use App\Http\Controllers\API\v1\PurchaseOrderController;
+use App\Http\Controllers\API\v1\ReportController;
 use App\Http\Controllers\API\v1\SaleController;
 use App\Http\Controllers\API\v1\StockMovementController;
 use App\Http\Controllers\API\v1\SupplierController;
@@ -61,6 +62,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('permission:sales.manage')->group(function () {
         Route::get('v1/sales', [SaleController::class, 'index']);
         Route::post('v1/sales', [SaleController::class, 'store']);
+    });
+
+    Route::middleware('permission:dashboard.view')->group(function () {
+        Route::get('v1/reports/summary', [ReportController::class, 'summary']);
+        Route::get('v1/reports/low-stock', [ReportController::class, 'lowStock']);
+        Route::get('v1/reports/inventory', [ReportController::class, 'inventorySummary']);
+        Route::get('v1/reports/stock-movement', [ReportController::class, 'stockMovement']);
+        Route::get('v1/reports/sales', [ReportController::class, 'sales']);
+        Route::get('v1/reports/purchases', [ReportController::class, 'purchases']);
+        Route::get('v1/reports/suppliers', [ReportController::class, 'suppliers']);
     });
 
     Route::middleware('permission:users.manage')->group(function () {

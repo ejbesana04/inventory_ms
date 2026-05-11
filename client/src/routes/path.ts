@@ -13,6 +13,7 @@ export const PATHS = {
     SUPPLIERS: p("suppliers"),
     PURCHASE_ORDERS: p("purchase-orders"),
     SALES: p("sales"),
+    REPORTS: p("reports"),
     STOCK_IN: p("stock-in"),
     STOCK_OUT: p("stock-out"),
     USERS: p("users"),

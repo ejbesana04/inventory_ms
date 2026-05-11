@@ -18,6 +18,66 @@ class ReportController extends Controller
 {
     use ApiResponse;
 
+    public function summary(Request $request): JsonResponse
+    {
+        [$from, $to] = $this->range($request);
+
+        $salesQuery = Sale::query()->whereBetween('created_at', [$from, $to]);
+        $purchaseQuery = PurchaseOrder::query()->whereBetween('created_at', [$from, $to]);
+        $movementQuery = StockMovement::query()->whereBetween('created_at', [$from, $to]);
+
+        $lowStockItems = Product::query()
+            ->with('category:id,name')
+            ->whereColumn('stock_quantity', '<=', 'reorder_level')
+            ->orderBy('stock_quantity')
+            ->take(10)
+            ->get(['id', 'name', 'sku', 'category_id', 'stock_quantity', 'reorder_level'])
+            ->map(fn (Product $product) => [
+                'id' => $product->id,
+                'name' => $product->name,
+                'sku' => $product->sku,
+                'category' => $product->category?->name ?? 'Uncategorized',
+                'stock_quantity' => (int) $product->stock_quantity,
+                'reorder_level' => (int) $product->reorder_level,
+            ])
+            ->values();
+
+        $recentSales = Sale::query()
+            ->with('customer:id,name')
+            ->whereBetween('created_at', [$from, $to])
+            ->latest()
+            ->take(8)
+            ->get()
+            ->map(fn (Sale $sale) => [
+                'id' => $sale->id,
+                'sale_no' => $sale->sale_no,
+                'customer' => $sale->customer?->name,
+                'total' => (float) $sale->total,
+                'status' => $sale->status,
+                'created_at' => $sale->created_at,
+            ])
+            ->values();
+
+        return $this->success([
+            'period' => [
+                'from' => $from->toDateString(),
+                'to' => $to->toDateString(),
+            ],
+            'kpis' => [
+                'products' => Product::query()->count(),
+                'suppliers' => Supplier::query()->count(),
+                'low_stock' => Product::query()->whereColumn('stock_quantity', '<=', 'reorder_level')->count(),
+                'sales_count' => (clone $salesQuery)->count(),
+                'sales_total' => (float) ((clone $salesQuery)->sum('total') ?? 0),
+                'purchase_count' => (clone $purchaseQuery)->count(),
+                'stock_in_qty' => (int) (clone $movementQuery)->where('movement_type', 'in')->sum('quantity'),
+                'stock_out_qty' => (int) (clone $movementQuery)->where('movement_type', 'out')->sum('quantity'),
+            ],
+            'low_stock_items' => $lowStockItems,
+            'recent_sales' => $recentSales,
+        ], 'Reports summary.');
+    }
+
     public function inventorySummary(Request $request): JsonResponse
     {
         [$from, $to] = $this->range($request);

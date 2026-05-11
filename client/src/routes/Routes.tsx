@@ -14,6 +14,7 @@ const Products = React.lazy(() => import("../pages/products/Products"));
 const Suppliers = React.lazy(() => import("../pages/suppliers/Suppliers"));
 const PurchaseOrders = React.lazy(() => import("../pages/purchase-orders/PurchaseOrders"));
 const Sales = React.lazy(() => import("../pages/sales/Sales"));
+const Reports = React.lazy(() => import("../pages/reports/Reports"));
 const StockIn = React.lazy(() => import("../pages/stock/StockIn"));
 const StockOut = React.lazy(() => import("../pages/stock/StockOut"));
 
@@ -39,6 +40,7 @@ const RESERVED = new Set([
   "suppliers",
   "purchase-orders",
   "sales",
+  "reports",
   "stock-in",
   "stock-out",
 ]);
@@ -89,6 +91,10 @@ export const Routes = createBrowserRouter([
           {
             path: "sales",
             element: lazyPage(<Sales />),
+          },
+          {
+            path: "reports",
+            element: lazyPage(<Reports />),
           },
           {
             path: "users",

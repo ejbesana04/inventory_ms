@@ -19,6 +19,7 @@ export const NAV_GROUPS: { title: string; items: AppNavItem[] }[] = [
       { path: "suppliers", label: "Suppliers", icon: "FaTruckField" },
       { path: "purchase-orders", label: "Purchase Orders", icon: "FaFileInvoice" },
       { path: "sales", label: "Sales", icon: "FaCashRegister" },
+      { path: "reports", label: "Reports", icon: "FaChartLine" },
       { path: "stock-in", label: "Stock In", icon: "FaArrowDownLong" },
       { path: "stock-out", label: "Stock Out", icon: "FaArrowUpLong" },
       { path: "users", label: "Users", icon: "FaUsers", rolesAllowed: ["admin", "manager"] },

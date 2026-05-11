@@ -43,6 +43,7 @@ export type DashboardSummary = {
     id: number;
     name: string;
     sku: string;
+    category: string;
     stock_quantity: number;
     reorder_level: number;
   }>;

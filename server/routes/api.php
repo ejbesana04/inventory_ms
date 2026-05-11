@@ -32,6 +32,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('permission:products.edit')->match(['put', 'patch'], 'v1/products/{product}', [ProductController::class, 'update']);
     Route::middleware('permission:products.delete')->delete('v1/products/{product}', [ProductController::class, 'destroy']);
     Route::middleware('permission:products.edit')->post('v1/products/{id}/restore', [ProductController::class, 'restore']);
+    Route::middleware('permission:products.delete')->delete('v1/products/{id}/permanent', [ProductController::class, 'permanentDelete']);
 
     Route::middleware('permission:categories.manage')->group(function () {
         Route::get('v1/categories', [CategoryController::class, 'index']);
@@ -63,6 +64,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::middleware('permission:users.manage')->group(function () {
+        Route::get('v1/users/active/count', [UserController::class, 'activeCount']);
         Route::post('v1/users/{id}/restore', [UserController::class, 'restore']);
         Route::apiResource('v1/users', UserController::class);
     });

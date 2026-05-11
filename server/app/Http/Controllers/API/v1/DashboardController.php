@@ -84,10 +84,19 @@ class DashboardController extends Controller
             ]);
 
         $lowStockPreview = Product::query()
+            ->with('category:id,name')
             ->whereColumn('stock_quantity', '<=', 'reorder_level')
             ->orderBy('stock_quantity')
             ->take(8)
-            ->get(['id', 'name', 'sku', 'stock_quantity', 'reorder_level']);
+            ->get(['id', 'name', 'sku', 'category_id', 'stock_quantity', 'reorder_level'])
+            ->map(fn (Product $product) => [
+                'id' => $product->id,
+                'name' => $product->name,
+                'sku' => $product->sku,
+                'category' => $product->category?->name ?? 'Uncategorized',
+                'stock_quantity' => (int) $product->stock_quantity,
+                'reorder_level' => (int) $product->reorder_level,
+            ]);
 
         return $this->success([
             'counts' => [

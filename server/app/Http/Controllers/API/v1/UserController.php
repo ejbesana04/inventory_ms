@@ -104,4 +104,11 @@ class UserController extends Controller
 
         return $this->success($user->fresh(), 'User restored successfully.');
     }
+
+    public function activeCount(): JsonResponse
+    {
+        return $this->success([
+            'count' => User::query()->count(),
+        ], 'Active user count fetched successfully.');
+    }
 }

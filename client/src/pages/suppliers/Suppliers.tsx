@@ -111,7 +111,7 @@ const Suppliers = () => {
   };
 
   const content = (
-    <div className="space-y-6 pb-8">
+    <div className="space-y-6 pb-8 overflow-x-hidden max-w-full">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-text">Suppliers</h1>
@@ -122,54 +122,66 @@ const Suppliers = () => {
         </Button>
       </div>
 
-      <div className="rounded-2xl border border-border-muted bg-bg-light p-4 shadow-sm overflow-x-auto">
+      <div className="rounded-2xl border border-border-muted bg-bg-light p-4 shadow-sm overflow-x-hidden">
         {loading ? (
           <p className="text-sm text-text-muted py-8 text-center">Loading…</p>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="text-text-muted">
-              <tr className="border-b border-border-muted">
-                <th className="text-left py-2">Name</th>
-                <th className="text-left py-2">Contact</th>
-                <th className="text-left py-2">Phone</th>
-                <th className="text-left py-2">Email</th>
-                <th className="text-left py-2">Status</th>
-                <th className="text-right py-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((s) => (
-                <tr key={s.id} className="border-b border-border-muted/40 last:border-b-0">
-                  <td className="py-2 font-medium text-text">{s.name}</td>
-                  <td className="py-2 text-text">{s.contact_person || "—"}</td>
-                  <td className="py-2 text-text">{s.phone || "—"}</td>
-                  <td className="py-2 text-text">{s.email || "—"}</td>
-                  <td className="py-2">
-                    {s.is_active === false ? (
-                      <span className="text-xs px-2 py-1 rounded-full bg-border-muted text-text-muted font-bold">Inactive</span>
-                    ) : (
-                      <span className="text-xs px-2 py-1 rounded-full bg-success/15 text-success font-bold">Active</span>
-                    )}
-                  </td>
-                  <td className="py-2 text-right space-x-2">
-                    <button type="button" className="text-primary font-bold text-xs uppercase hover:underline" onClick={() => openEdit(s)}>
-                      Edit
-                    </button>
-                    <button type="button" className="text-danger font-bold text-xs uppercase hover:underline" onClick={() => void remove(s)}>
-                      Delete
-                    </button>
-                  </td>
+          <div className="w-full overflow-x-hidden">
+            <table className="w-full table-fixed text-sm">
+              <thead className="text-text-muted">
+                <tr className="border-b border-border-muted">
+                  <th className="text-left py-2 w-1/5">Name</th>
+                  <th className="text-left py-2 w-1/6">Contact</th>
+                  <th className="text-left py-2 w-1/6">Phone</th>
+                  <th className="text-left py-2 w-1/5">Email</th>
+                  <th className="text-left py-2 w-1/4">Address</th>
+                  <th className="text-left py-2 w-1/12">Status</th>
+                  <th className="text-right py-2 w-1/12">Actions</th>
                 </tr>
-              ))}
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="py-8 text-center text-text-muted">
-                    No suppliers yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((s) => (
+                  <tr key={s.id} className="border-b border-border-muted/40 last:border-b-0">
+                    <td className="py-2 font-medium text-text break-words pr-2">{s.name}</td>
+                    <td className="py-2 text-text break-words pr-2">{s.contact_person || "—"}</td>
+                    <td className="py-2 text-text break-words pr-2">{s.phone || "—"}</td>
+                    <td className="py-2 text-text break-words pr-2">{s.email || "—"}</td>
+                    <td className="py-2 text-text break-words pr-2">{s.address || "—"}</td>
+                    <td className="py-2 break-words pr-2">
+                      {s.is_active === false ? (
+                        <span className="text-xs px-2 py-1 rounded-full bg-border-muted text-text-muted font-bold">Inactive</span>
+                      ) : (
+                        <span className="text-xs px-2 py-1 rounded-full bg-success/15 text-success font-bold">Active</span>
+                      )}
+                    </td>
+                    <td className="py-2 text-right whitespace-nowrap">
+                      <button
+                        type="button"
+                        className="text-primary font-bold text-xs uppercase hover:underline mr-2"
+                        onClick={() => openEdit(s)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="text-danger font-bold text-xs uppercase hover:underline"
+                        onClick={() => void remove(s)}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-text-muted">
+                      No suppliers yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 

@@ -80,7 +80,7 @@ const Dashboard = () => {
         by: item.by,
         createdAt: item.created_at,
       }));
-      setRecentMovements(mappedMovements.slice(0, 5)); // LIMIT to 5 items
+      setRecentMovements(mappedMovements.slice(0, 5));
     } else {
       setSummary(null);
     }
@@ -146,7 +146,7 @@ const Dashboard = () => {
       return summary.low_stock_preview.map((p) => ({
         id: p.id,
         name: p.name,
-        category: "—",
+        category: p.category ?? "Uncategorized",
         qty: p.stock_quantity,
         reorder: p.reorder_level,
       }));
@@ -164,18 +164,6 @@ const Dashboard = () => {
     () => [...products].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 6),
     [products]
   );
-
-  const handleSyncData = async () => {
-    setIsSyncing(true);
-    try {
-      await fetchDashboardData();
-      notify.success("Dashboard data synced successfully.");
-    } catch {
-      notify.error("Sync failed. Please try again.");
-    } finally {
-      setIsSyncing(false);
-    }
-  };
 
   const handleNewProduct = () => setIsNewProductModalOpen(true);
   const handleAddCategory = () => setIsAddCategoryModalOpen(true);
@@ -282,12 +270,11 @@ const Dashboard = () => {
     }
   };
 
-  // Limit activity logs to 5 items
   const limitedActivityLogs = summary?.activity_logs?.slice(0, 5) ?? [];
 
   const content = (
     <>
-      <div className="space-y-6 pb-8 overflow-x-hidden">
+      <div className="space-y-6 pb-8 w-full max-w-full min-w-0 overflow-x-clip">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
@@ -317,30 +304,30 @@ const Dashboard = () => {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 w-full min-w-0">
           {/* Low Stock Table - no horizontal scroll */}
-          <section className="xl:col-span-2 rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-hidden">
-            <div className="flex items-center justify-between mb-3">
+          <section className="xl:col-span-2 rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-clip w-full max-w-full min-w-0">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <h2 className="text-sm font-semibold text-text uppercase tracking-wide">Low Stock Alert</h2>
               <Button variant="ghost" size="sm" iconName="FaListCheck" onClick={() => notify.info("Full list coming soon")}>
                 View All
               </Button>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm table-auto">
+            <div className="w-full min-w-0 overflow-x-clip">
+              <table className="w-full table-fixed text-sm">
                 <thead className="text-text-muted">
                   <tr className="border-b border-border-muted">
-                    <th className="text-left py-2">Product</th>
-                    <th className="text-left py-2">Category</th>
-                    <th className="text-right py-2">Current</th>
-                    <th className="text-right py-2">Reorder</th>
+                    <th className="text-left py-2 w-2/5">Product</th>
+                    <th className="text-left py-2 w-2/5">Category</th>
+                    <th className="text-right py-2 w-1/10">Current</th>
+                    <th className="text-right py-2 w-1/10">Reorder</th>
                   </tr>
                 </thead>
                 <tbody>
                   {lowStock.map((item) => (
                     <tr key={item.id ?? `${item.name}-${item.qty}`} className="border-b border-border-muted/40 last:border-b-0">
-                      <td className="py-2 font-medium text-text break-words">{item.name}</td>
-                      <td className="py-2 text-text break-words">{item.category}</td>
+                      <td className="py-2 font-medium text-text break-words pr-2">{item.name}</td>
+                      <td className="py-2 text-text break-words pr-2">{item.category}</td>
                       <td className="py-2 text-right text-warning font-semibold">{item.qty}</td>
                       <td className="py-2 text-right text-text">{item.reorder}</td>
                     </tr>
@@ -356,7 +343,7 @@ const Dashboard = () => {
           </section>
 
           {/* Recent Stock Movements */}
-          <section className="rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-hidden">
+          <section className="rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-clip w-full max-w-full min-w-0">
             <h2 className="text-sm font-semibold text-text uppercase tracking-wide mb-3">Recent Stock Movements</h2>
             <div className="space-y-3">
               {isLoadingDashboard ? (
@@ -370,13 +357,13 @@ const Dashboard = () => {
               ) : (
                 recentMovements.map((movement, index) => (
                   <div key={`${movement.item}-${index}`} className="rounded-xl border border-border-muted bg-bg-main p-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-text break-words">{movement.item}</p>
-                      <span className="text-xs capitalize px-2 py-1 rounded-md bg-primary/15 text-primary flex-shrink-0">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <p className="text-sm font-medium text-text break-words flex-1">{movement.item}</p>
+                      <span className="text-xs capitalize px-2 py-1 rounded-md bg-primary/15 text-primary shrink-0">
                         {movement.type}
                       </span>
                     </div>
-                    <p className="text-xs text-text-muted mt-1">
+                    <p className="text-xs text-text-muted mt-1 break-words">
                       Qty: <span className="text-text">{movement.qty}</span> | By: {movement.by}
                     </p>
                   </div>
@@ -386,29 +373,31 @@ const Dashboard = () => {
           </section>
         </div>
 
-        {/* Recent Activity Table - limited to 5 items, no horizontal scroll */}
+        {/* Recent Activity Table - no horizontal scroll */}
         {limitedActivityLogs.length > 0 && (
-          <section className="rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-hidden">
+          <section className="rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-clip w-full max-w-full min-w-0">
             <h2 className="text-sm font-semibold text-text uppercase tracking-wide mb-3">Recent Activity</h2>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm table-auto">
+            <div className="w-full min-w-0 overflow-x-clip">
+              <table className="w-full table-fixed text-sm">
                 <thead className="text-text-muted">
                   <tr className="border-b border-border-muted">
-                    <th className="text-left py-2">Time</th>
-                    <th className="text-left py-2">User</th>
-                    <th className="text-left py-2">Action</th>
-                    <th className="text-left py-2">Description</th>
+                    <th className="text-left py-2 w-1/4">Time</th>
+                    <th className="text-left py-2 w-1/6">User</th>
+                    <th className="text-left py-2 w-1/6">Action</th>
+                    <th className="text-left py-2 w-2/5">Description</th>
                   </tr>
                 </thead>
                 <tbody>
                   {limitedActivityLogs.map((log) => (
                     <tr key={log.id} className="border-b border-border-muted/40 last:border-b-0">
-                      <td className="py-2 text-text-muted whitespace-nowrap">
+                      <td className="py-2 text-text-muted break-words pr-2">
                         {new Date(log.created_at).toLocaleString()}
                       </td>
-                      <td className="py-2 text-text break-words">{log.user}</td>
-                      <td className="py-2">
-                        <span className="text-xs px-2 py-1 rounded-md bg-info/15 text-info font-semibold break-words">{log.action}</span>
+                      <td className="py-2 text-text break-words pr-2">{log.user}</td>
+                      <td className="py-2 break-words pr-2">
+                        <span className="text-xs px-2 py-1 rounded-md bg-info/15 text-info font-semibold break-words inline-block">
+                          {log.action}
+                        </span>
                       </td>
                       <td className="py-2 text-text break-words">{log.description}</td>
                     </tr>
@@ -432,24 +421,24 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Recently Added Products */}
-        <div className="rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-hidden">
+        {/* Recently Added Products - no horizontal scroll */}
+        <div className="rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-clip w-full max-w-full min-w-0">
           <h2 className="text-sm font-semibold text-text uppercase tracking-wide mb-3">Recently Added Products</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm table-auto">
+          <div className="w-full min-w-0 overflow-x-clip">
+            <table className="w-full table-fixed text-sm">
               <thead className="text-text-muted">
                 <tr className="border-b border-border-muted">
-                  <th className="text-left py-2">Name</th>
-                  <th className="text-left py-2">Category</th>
-                  <th className="text-right py-2">Stock</th>
-                  <th className="text-right py-2">Price</th>
+                  <th className="text-left py-2 w-2/5">Name</th>
+                  <th className="text-left py-2 w-2/5">Category</th>
+                  <th className="text-right py-2 w-1/10">Stock</th>
+                  <th className="text-right py-2 w-1/10">Price</th>
                 </tr>
               </thead>
               <tbody>
                 {latestProducts.map((product) => (
                   <tr key={`${product.name}-${product.createdAt}`} className="border-b border-border-muted/40 last:border-b-0">
-                    <td className="py-2 font-medium text-text break-words">{product.name}</td>
-                    <td className="py-2 text-text break-words">{product.category}</td>
+                    <td className="py-2 font-medium text-text break-words pr-2">{product.name}</td>
+                    <td className="py-2 text-text break-words pr-2">{product.category}</td>
                     <td className="py-2 text-right text-text">{product.qty}</td>
                     <td className="py-2 text-right text-text">₱{product.unitPrice.toFixed(2)}</td>
                   </tr>
@@ -465,7 +454,6 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Modals remain unchanged */}
       <Modal
         isOpen={isNewProductModalOpen}
         onClose={closeNewProductModal}

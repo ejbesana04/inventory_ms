@@ -8,7 +8,10 @@ use App\Http\Requests\ProductUpdateRequest;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\PurchaseOrderLine;
+use App\Models\SaleItem;
 use App\Models\StockMovement;
+use App\Models\StockTransferItem;
 use App\Models\UnitOfMeasure;
 use App\Services\ActivityLogger;
 use App\Traits\ApiResponse;
@@ -234,6 +237,27 @@ class ProductController extends Controller
         ActivityLogger::log('product.restore', "Restored product {$product->sku}", $product);
 
         return $this->success($this->serializeProduct($product->fresh(['category', 'supplier', 'brand', 'unit', 'defaultWarehouse'])), 'Product restored.');
+    }
+
+    public function permanentDelete(int $id): JsonResponse
+    {
+        $product = Product::withTrashed()->findOrFail($id);
+
+        // Check for dependent records
+        $hasPurchaseOrders = PurchaseOrderLine::where('product_id', $id)->exists();
+        $hasSales = SaleItem::where('product_id', $id)->exists();
+        $hasStockTransfers = StockTransferItem::where('product_id', $id)->exists();
+
+        if ($hasPurchaseOrders || $hasSales || $hasStockTransfers) {
+            return $this->error('Cannot permanently delete product. It has associated purchase orders, sales, or stock transfers.', 409);
+        }
+
+        $sku = $product->sku;
+        $product->forceDelete();
+
+        ActivityLogger::log('product.permanent_delete', "Permanently deleted product {$sku}", null, ['sku' => $sku, 'id' => $id]);
+
+        return $this->success(null, 'Product permanently deleted.');
     }
 
     /**

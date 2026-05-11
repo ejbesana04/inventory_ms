@@ -71,7 +71,7 @@ const PurchaseOrders = () => {
               id: p.id,
               name: p.name,
               sku: p.sku,
-              selling_price: Number(p.selling_price ?? p.unit_price ?? 0),
+              selling_price: Number(p.selling_price ?? 0),
             }))
           : []
       );

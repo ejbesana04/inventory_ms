@@ -26,6 +26,20 @@ export type ProductListParams = {
   filter?: "archived";
 };
 
+type ProductListEnvelope<TItem = Record<string, unknown>> = {
+  status: string;
+  message: string;
+  data: {
+    items: TItem[];
+    meta?: {
+      current_page: number;
+      last_page: number;
+      per_page: number;
+      total: number;
+    };
+  };
+};
+
 const ProductService = {
   list: (params?: ProductListParams) =>
     handleRequest(
@@ -33,12 +47,43 @@ const ProductService = {
       "Failed to fetch products"
     ),
 
-  /** @deprecated prefer list(); kept for older callers */
-  getAll: () =>
-    handleRequest(
-      AxiosInstance.get(PRODUCT_PREFIX, { params: { per_page: 500 } }),
-      "Failed to fetch products"
-    ),
+  /** Fetches all pages to avoid truncating product pickers. */
+  getAll: async () => {
+    const perPage = 100;
+    let currentPage = 1;
+    let lastPage = 1;
+    const allItems: Record<string, unknown>[] = [];
+
+    while (currentPage <= lastPage) {
+      const response = (await handleRequest(
+        AxiosInstance.get<ProductListEnvelope>(PRODUCT_PREFIX, {
+          params: { page: currentPage, per_page: perPage, sort: "created_at", direction: "desc" },
+        }),
+        "Failed to fetch products"
+      )) as ProductListEnvelope;
+
+      const payload = response.data;
+      allItems.push(...(payload?.items ?? []));
+
+      const meta = payload?.meta;
+      lastPage = meta?.last_page ?? currentPage;
+      currentPage += 1;
+    }
+
+    return {
+      status: "Success",
+      message: "Products fetched successfully.",
+      data: {
+        items: allItems,
+        meta: {
+          current_page: 1,
+          last_page: 1,
+          per_page: allItems.length,
+          total: allItems.length,
+        },
+      },
+    } as ProductListEnvelope;
+  },
 
   create: (data: ProductPayload) =>
     handleRequest(
@@ -65,6 +110,13 @@ const ProductService = {
     handleRequest(
       AxiosInstance.post(`${PRODUCT_PREFIX}/${id}/restore`),
       "Failed to restore product",
+      { silentStatuses: [400, 401, 422, 500, 503] }
+    ),
+
+  permanentDelete: (id: number) =>
+    handleRequest(
+      AxiosInstance.delete(`${PRODUCT_PREFIX}/${id}/permanent`),
+      "Failed to permanently delete product",
       { silentStatuses: [400, 401, 422, 500, 503] }
     ),
 

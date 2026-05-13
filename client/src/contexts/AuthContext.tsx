@@ -28,6 +28,7 @@ export const AuthProviderLayout: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   const refreshUser = useCallback(async () => {
+    AuthService.clearSessionRequestCache();
     const next = await AuthService.fetchCurrentUser();
     setUser(next);
   }, []);
@@ -37,22 +38,22 @@ export const AuthProviderLayout: React.FC = () => {
     const run = async () => {
       setIsLoading(true);
       try {
-        await refreshUser();
+        const next = await AuthService.fetchCurrentUser();
+        if (!cancelled) setUser(next);
       } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+        if (!cancelled) setIsLoading(false);
       }
     };
     void run();
     return () => {
       cancelled = true;
     };
-  }, [refreshUser]);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onSessionExpired(() => {
       setUser(null);
+      AuthService.clearSessionRequestCache();
       if (window.location.pathname !== PATHS.LOGIN) {
         navigate(PATHS.LOGIN, { replace: true });
       }
@@ -71,6 +72,7 @@ export const AuthProviderLayout: React.FC = () => {
     } catch {
       // Still clear local session if the server round-trip fails.
     } finally {
+      AuthService.clearSessionRequestCache();
       setUser(null);
       navigate(PATHS.LOGIN, { replace: true });
     }

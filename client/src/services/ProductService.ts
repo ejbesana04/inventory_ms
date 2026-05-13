@@ -15,6 +15,22 @@ export interface ProductPayload {
   notes?: string;
 }
 
+/**
+ * For edit/update operations.
+ * Keep stock changes out of the product edit form if stock is managed
+ * through Stock In / Stock Out pages.
+ */
+export interface ProductUpdatePayload {
+  sku?: string;
+  name?: string;
+  category?: string;
+  supplier_id?: number | null;
+  unit_price?: number;
+  selling_price?: number;
+  reorder_level?: number;
+  notes?: string;
+}
+
 export type ProductListParams = {
   search?: string;
   page?: number;
@@ -26,17 +42,19 @@ export type ProductListParams = {
   filter?: "archived";
 };
 
+type PaginationMeta = {
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+};
+
 type ProductListEnvelope<TItem = Record<string, unknown>> = {
   status: string;
   message: string;
   data: {
     items: TItem[];
-    meta?: {
-      current_page: number;
-      last_page: number;
-      per_page: number;
-      total: number;
-    };
+    meta?: PaginationMeta;
   };
 };
 
@@ -47,7 +65,9 @@ const ProductService = {
       "Failed to fetch products"
     ),
 
-  /** Fetches all pages to avoid truncating product pickers. */
+  /**
+   * Fetches all pages so pickers/dropdowns are not cut off by pagination.
+   */
   getAll: async () => {
     const perPage = 100;
     let currentPage = 1;
@@ -57,7 +77,12 @@ const ProductService = {
     while (currentPage <= lastPage) {
       const response = (await handleRequest(
         AxiosInstance.get<ProductListEnvelope>(PRODUCT_PREFIX, {
-          params: { page: currentPage, per_page: perPage, sort: "created_at", direction: "desc" },
+          params: {
+            page: currentPage,
+            per_page: perPage,
+            sort: "created_at",
+            direction: "desc",
+          },
         }),
         "Failed to fetch products"
       )) as ProductListEnvelope;
@@ -92,7 +117,7 @@ const ProductService = {
       { silentStatuses: [400, 401, 409, 422, 500, 503] }
     ),
 
-  update: (id: number, data: Partial<ProductPayload> & Record<string, unknown>) =>
+  update: (id: number, data: ProductUpdatePayload) =>
     handleRequest(
       AxiosInstance.put(`${PRODUCT_PREFIX}/${id}`, data),
       "Failed to update product",

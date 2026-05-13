@@ -1,14 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { AxiosError } from "axios";
 import MainLayout from "../components/layouts/MainLayout";
+import { DashboardSkeleton } from "../components/page/DashboardSkeleton";
+import { PageShell } from "../components/page/PageShell";
 import { Button, Icon, Modal } from "../components/ui/index";
 import { InputField, Select, TextArea } from "../components/ui/forms";
 import { PATHS } from "../routes/path";
 import { notify } from "../util/notify";
 import ProductService from "../services/ProductService";
 import CategoryService, { type Category } from "../services/CategoryService";
-import DashboardService, { type DashboardSummary } from "../services/DashboardService";
+import type { DashboardSummary } from "../services/DashboardService";
+import {
+  loadDashboardBundle,
+  type ProductItem,
+  type StockMovementItem,
+} from "./dashboard/loadDashboardBundle";
 
 interface NewProductFormState {
   productName: string;
@@ -19,30 +26,8 @@ interface NewProductFormState {
   notes: string;
 }
 
-interface ProductItem {
-  id?: number;
-  name: string;
-  category: string;
-  unitPrice: number;
-  qty: number;
-  reorder: number;
-  notes: string;
-  createdAt: string;
-}
-
-interface StockMovementItem {
-  id?: number;
-  type: "in" | "out" | "adjustment";
-  item: string;
-  qty: number;
-  by: string;
-  createdAt?: string;
-}
-
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [isLoadingDashboard, setIsLoadingDashboard] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [isNewProductModalOpen, setIsNewProductModalOpen] = useState(false);
   const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
@@ -57,80 +42,64 @@ const Dashboard = () => {
   });
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryDesc, setNewCategoryDesc] = useState("");
-  const [products, setProducts] = useState<ProductItem[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [recentMovements, setRecentMovements] = useState<StockMovementItem[]>([]);
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
 
-  const fetchDashboardData = async () => {
-    const [summaryRes, productsResponse, categoriesResponse] = await Promise.all([
-      DashboardService.getSummary(),
-      ProductService.getAll(),
-      CategoryService.getAll(),
-    ]);
+  const [bundle, setBundle] = useState<{
+    summary: DashboardSummary | null;
+    products: ProductItem[];
+    categories: Category[];
+    recentMovements: StockMovementItem[];
+  } | null>(null);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
-    const summaryPayload = (summaryRes as { data?: DashboardSummary })?.data;
-    if (summaryPayload) {
-      setSummary(summaryPayload);
-      const mappedMovements: StockMovementItem[] = (summaryPayload.recent_movements ?? []).map((item) => ({
-        id: item.id,
-        type: item.type as "in" | "out" | "adjustment",
-        item: item.item,
-        qty: item.qty,
-        by: item.by,
-        createdAt: item.created_at,
-      }));
-      setRecentMovements(mappedMovements.slice(0, 5));
+  const loadBundle = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
+    if (silent) {
+      setIsRefreshing(true);
     } else {
-      setSummary(null);
+      setIsInitialLoad(true);
     }
-
-    const productEnvelope = (productsResponse as { data?: { items?: Array<Record<string, unknown>> } })?.data;
-    const productPayload = productEnvelope?.items;
-    if (Array.isArray(productPayload)) {
-      const mappedProducts: ProductItem[] = productPayload.map((item) => ({
-        id: typeof item.id === "number" ? item.id : undefined,
-        name: String(item.name ?? ""),
-        category: String(item.category ?? "Uncategorized"),
-        unitPrice: Number(item.unit_price ?? 0),
-        qty: Number(item.stock_quantity ?? 0),
-        reorder: Number(item.reorder_level ?? 0),
-        notes: String(item.notes ?? ""),
-        createdAt: String(item.created_at ?? new Date().toISOString()),
-      }));
-      setProducts(mappedProducts);
-    } else {
-      setProducts([]);
+    setLoadError(false);
+    try {
+      const data = await loadDashboardBundle();
+      setBundle(data);
+    } catch {
+      setLoadError(true);
+      if (!silent) notify.error("Failed to load dashboard data from server.");
+    } finally {
+      setIsInitialLoad(false);
+      setIsRefreshing(false);
     }
-
-    const categoriesPayload = (categoriesResponse as { data?: Category[] })?.data;
-    if (Array.isArray(categoriesPayload)) {
-      setCategories(categoriesPayload);
-    } else {
-      setCategories([]);
-    }
-  };
+  }, []);
 
   useEffect(() => {
-    const run = async () => {
-      setIsLoadingDashboard(true);
-      try {
-        await fetchDashboardData();
-      } catch {
-        notify.error("Failed to load dashboard data from server.");
-      } finally {
-        setIsLoadingDashboard(false);
-      }
-    };
-    run();
-  }, []);
+    void loadBundle();
+  }, [loadBundle]);
+
+  const summary = bundle?.summary ?? null;
+  const products = bundle?.products ?? [];
+  const categories = bundle?.categories ?? [];
+  const recentMovements = bundle?.recentMovements ?? [];
 
   const metricCards = useMemo(() => {
     const c = summary?.counts;
     if (!c) {
       return [
-        { label: "Total Products", value: `${products.length}`, trend: "Live from database", icon: "FaBoxesStacked", color: "text-info" },
-        { label: "Low Stock Items", value: `${products.filter((item) => item.qty <= item.reorder).length}`, trend: "Needs reorder", icon: "FaTriangleExclamation", color: "text-warning" },
+        {
+          label: "Total Products",
+          value: `${products.length}`,
+          trend: "Live from database",
+          icon: "FaBoxesStacked",
+          color: "text-info",
+        },
+        {
+          label: "Low Stock Items",
+          value: `${products.filter((item) => item.qty <= item.reorder).length}`,
+          trend: "Needs reorder",
+          icon: "FaTriangleExclamation",
+          color: "text-warning",
+        },
       ];
     }
     return [
@@ -151,17 +120,21 @@ const Dashboard = () => {
         reorder: p.reorder_level,
       }));
     }
-    return products.filter((item) => item.qty <= item.reorder).slice(0, 8).map((item) => ({
-      id: item.id,
-      name: item.name,
-      category: item.category,
-      qty: item.qty,
-      reorder: item.reorder,
-    }));
+    return products
+      .filter((item) => item.qty <= item.reorder)
+      .slice(0, 8)
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        qty: item.qty,
+        reorder: item.reorder,
+      }));
   }, [summary, products]);
 
   const latestProducts = useMemo(
-    () => [...products].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 6),
+    () =>
+      [...products].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 6),
     [products]
   );
 
@@ -193,9 +166,9 @@ const Dashboard = () => {
   };
 
   const generateSku = (productName: string): string => {
-    const base = productName.slice(0, 3).toUpperCase().replace(/[^A-Z]/g, '');
+    const base = productName.slice(0, 3).toUpperCase().replace(/[^A-Z]/g, "");
     const timestamp = Date.now().toString().slice(-6);
-    return `${base || 'PRD'}-${timestamp}`;
+    return `${base || "PRD"}-${timestamp}`;
   };
 
   const handleSaveNewProduct = async () => {
@@ -234,12 +207,12 @@ const Dashboard = () => {
         reorder_level: reorderLevel,
         notes: productForm.notes.trim() || undefined,
       });
-      await fetchDashboardData();
+      await loadBundle({ silent: true });
       notify.success(`Product "${productForm.productName}" saved (SKU: ${generatedSku}).`);
       setIsNewProductModalOpen(false);
       resetNewProductForm();
-    } catch (error) {
-      const axiosError = error as AxiosError<{ message?: string }>;
+    } catch (err) {
+      const axiosError = err as AxiosError<{ message?: string }>;
       notify.error(axiosError.response?.data?.message || "Unable to save product.");
     } finally {
       setIsSavingProduct(false);
@@ -259,11 +232,11 @@ const Dashboard = () => {
         name,
         description: newCategoryDesc.trim() || undefined,
       });
-      await fetchDashboardData();
+      await loadBundle({ silent: true });
       notify.success(`Category "${name}" added.`);
       closeCategoryModal();
-    } catch (error) {
-      const axiosError = error as AxiosError<{ message?: string }>;
+    } catch (err) {
+      const axiosError = err as AxiosError<{ message?: string }>;
       notify.error(axiosError.response?.data?.message || "Unable to save category.");
     } finally {
       setIsSavingCategory(false);
@@ -272,21 +245,40 @@ const Dashboard = () => {
 
   const limitedActivityLogs = summary?.activity_logs?.slice(0, 5) ?? [];
 
-  const content = (
-    <>
+  if (!isInitialLoad && loadError && !bundle) {
+    return (
+      <MainLayout
+        content={
+          <div className="rounded-2xl border border-danger/25 bg-bg-light p-8 text-center shadow-sm">
+            <p className="text-text font-semibold">Unable to load dashboard.</p>
+            <Button className="mt-4" variant="primary" iconName="FaArrowRotateRight" onClick={() => void loadBundle()}>
+              Retry
+            </Button>
+          </div>
+        }
+      />
+    );
+  }
+
+  const body = (
+    <PageShell
+      isInitialLoading={isInitialLoad && bundle === null}
+      isFetching={isRefreshing && bundle !== null}
+      skeleton={<DashboardSkeleton />}
+    >
       <div className="space-y-6 pb-8 w-full max-w-full min-w-0 overflow-x-clip">
-        {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-text">Inventory Operations Dashboard</h1>
             <p className="text-sm text-text-muted">Track stock health, sales movement, and team activity in one place.</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="primary" iconName="FaPlus" onClick={handleNewProduct}>New Product</Button>
+            <Button variant="primary" iconName="FaPlus" onClick={handleNewProduct}>
+              New Product
+            </Button>
           </div>
         </div>
 
-        {/* Metric Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {metricCards.map((card) => (
             <div key={card.label} className="rounded-2xl border border-border-muted bg-bg-light p-4 shadow-sm">
@@ -305,7 +297,6 @@ const Dashboard = () => {
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 w-full min-w-0">
-          {/* Low Stock Table - no horizontal scroll */}
           <section className="xl:col-span-2 rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-clip w-full max-w-full min-w-0">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <h2 className="text-sm font-semibold text-text uppercase tracking-wide">Low Stock Alert</h2>
@@ -334,7 +325,9 @@ const Dashboard = () => {
                   ))}
                   {lowStock.length === 0 && (
                     <tr>
-                      <td className="py-4 text-text-muted text-center" colSpan={4}>No low stock items.</td>
+                      <td className="py-4 text-text-muted text-center" colSpan={4}>
+                        No low stock items.
+                      </td>
                     </tr>
                   )}
                 </tbody>
@@ -342,15 +335,10 @@ const Dashboard = () => {
             </div>
           </section>
 
-          {/* Recent Stock Movements */}
           <section className="rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-clip w-full max-w-full min-w-0">
             <h2 className="text-sm font-semibold text-text uppercase tracking-wide mb-3">Recent Stock Movements</h2>
             <div className="space-y-3">
-              {isLoadingDashboard ? (
-                <div className="rounded-xl border border-border-muted bg-bg-main p-3">
-                  <p className="text-sm text-text-muted">Loading stock movements...</p>
-                </div>
-              ) : recentMovements.length === 0 ? (
+              {recentMovements.length === 0 ? (
                 <div className="rounded-xl border border-border-muted bg-bg-main p-3 text-center">
                   <p className="text-sm text-text-muted">No stock movements recorded.</p>
                 </div>
@@ -359,9 +347,7 @@ const Dashboard = () => {
                   <div key={`${movement.item}-${index}`} className="rounded-xl border border-border-muted bg-bg-main p-3">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <p className="text-sm font-medium text-text break-words flex-1">{movement.item}</p>
-                      <span className="text-xs capitalize px-2 py-1 rounded-md bg-primary/15 text-primary shrink-0">
-                        {movement.type}
-                      </span>
+                      <span className="text-xs capitalize px-2 py-1 rounded-md bg-primary/15 text-primary shrink-0">{movement.type}</span>
                     </div>
                     <p className="text-xs text-text-muted mt-1 break-words">
                       Qty: <span className="text-text">{movement.qty}</span> | By: {movement.by}
@@ -373,7 +359,6 @@ const Dashboard = () => {
           </section>
         </div>
 
-        {/* Recent Activity Table - no horizontal scroll */}
         {limitedActivityLogs.length > 0 && (
           <section className="rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-clip w-full max-w-full min-w-0">
             <h2 className="text-sm font-semibold text-text uppercase tracking-wide mb-3">Recent Activity</h2>
@@ -390,14 +375,10 @@ const Dashboard = () => {
                 <tbody>
                   {limitedActivityLogs.map((log) => (
                     <tr key={log.id} className="border-b border-border-muted/40 last:border-b-0">
-                      <td className="py-2 text-text-muted break-words pr-2">
-                        {new Date(log.created_at).toLocaleString()}
-                      </td>
+                      <td className="py-2 text-text-muted break-words pr-2">{new Date(log.created_at).toLocaleString()}</td>
                       <td className="py-2 text-text break-words pr-2">{log.user}</td>
                       <td className="py-2 break-words pr-2">
-                        <span className="text-xs px-2 py-1 rounded-md bg-info/15 text-info font-semibold break-words inline-block">
-                          {log.action}
-                        </span>
+                        <span className="text-xs px-2 py-1 rounded-md bg-info/15 text-info font-semibold break-words inline-block">{log.action}</span>
                       </td>
                       <td className="py-2 text-text break-words">{log.description}</td>
                     </tr>
@@ -408,20 +389,30 @@ const Dashboard = () => {
           </section>
         )}
 
-        {/* Quick Actions */}
         <div className="rounded-2xl border border-border-muted bg-bg-light p-4">
           <h2 className="text-sm font-semibold text-text uppercase tracking-wide mb-3">Quick Actions</h2>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <Button variant="primary" iconName="FaPlus" onClick={handleNewProduct}>Add Product</Button>
-            <Button variant="outline" iconName="FaPlus" onClick={handleAddCategory}>Add Category</Button>
-            <Button variant="outline" iconName="FaFileInvoice" onClick={() => navigate(PATHS.APP.PURCHASE_ORDERS)}>Purchase Order</Button>
-            <Button variant="outline" iconName="FaArrowDownLong" onClick={() => navigate(PATHS.APP.STOCK_IN)}>Stock In</Button>
-            <Button variant="outline" iconName="FaArrowUpLong" onClick={() => navigate(PATHS.APP.STOCK_OUT)}>Stock Out</Button>
-            <Button variant="outline" iconName="FaUsers" onClick={() => navigate(PATHS.APP.USERS)}>Manage Users</Button>
+            <Button variant="primary" iconName="FaPlus" onClick={handleNewProduct}>
+              Add Product
+            </Button>
+            <Button variant="outline" iconName="FaPlus" onClick={handleAddCategory}>
+              Add Category
+            </Button>
+            <Button variant="outline" iconName="FaFileInvoice" onClick={() => navigate(PATHS.APP.PURCHASE_ORDERS)}>
+              Purchase Order
+            </Button>
+            <Button variant="outline" iconName="FaArrowDownLong" onClick={() => navigate(PATHS.APP.STOCK_IN)}>
+              Stock In
+            </Button>
+            <Button variant="outline" iconName="FaArrowUpLong" onClick={() => navigate(PATHS.APP.STOCK_OUT)}>
+              Stock Out
+            </Button>
+            <Button variant="outline" iconName="FaUsers" onClick={() => navigate(PATHS.APP.USERS)}>
+              Manage Users
+            </Button>
           </div>
         </div>
 
-        {/* Recently Added Products - no horizontal scroll */}
         <div className="rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-clip w-full max-w-full min-w-0">
           <h2 className="text-sm font-semibold text-text uppercase tracking-wide mb-3">Recently Added Products</h2>
           <div className="w-full min-w-0 overflow-x-clip">
@@ -445,7 +436,9 @@ const Dashboard = () => {
                 ))}
                 {latestProducts.length === 0 && (
                   <tr>
-                    <td className="py-4 text-text-muted text-center" colSpan={4}>No products found.</td>
+                    <td className="py-4 text-text-muted text-center" colSpan={4}>
+                      No products found.
+                    </td>
                   </tr>
                 )}
               </tbody>
@@ -453,129 +446,133 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
-
-      <Modal
-        isOpen={isNewProductModalOpen}
-        onClose={closeNewProductModal}
-        title="New Product"
-        size="lg"
-        primaryAction={{
-          label: "Save Product",
-          iconName: "FaFloppyDisk",
-          onClick: handleSaveNewProduct,
-          isLoading: isSavingProduct,
-          loadingText: "Saving",
-        }}
-        secondaryAction={{
-          label: "Cancel",
-          variant: "secondary",
-          onClick: closeNewProductModal,
-        }}
-      >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <InputField
-            fullWidth
-            required
-            label="Product Name"
-            placeholder="Canned Tuna 155g"
-            value={productForm.productName}
-            onChange={(e) => setProductForm((prev) => ({ ...prev, productName: e.target.value }))}
-          />
-          <Select
-            fullWidth
-            required
-            label="Category"
-            value={productForm.category}
-            onChange={(e) => setProductForm((prev) => ({ ...prev, category: e.target.value }))}
-            options={[
-              { value: "", label: "Select category" },
-              ...categories.map((cat) => ({ value: cat.name, label: cat.name })),
-            ]}
-          />
-          <InputField
-            fullWidth
-            required
-            type="number"
-            min="0"
-            step="0.01"
-            label="Unit Price"
-            placeholder="0.00"
-            value={productForm.unitPrice}
-            onChange={(e) => setProductForm((prev) => ({ ...prev, unitPrice: e.target.value }))}
-          />
-          <InputField
-            fullWidth
-            required
-            type="number"
-            min="0"
-            step="1"
-            label="Current Stock"
-            placeholder="0"
-            value={productForm.stockQty}
-            onChange={(e) => setProductForm((prev) => ({ ...prev, stockQty: e.target.value }))}
-          />
-          <InputField
-            fullWidth
-            required
-            type="number"
-            min="0"
-            step="1"
-            label="Reorder Level"
-            placeholder="0"
-            value={productForm.reorderLevel}
-            onChange={(e) => setProductForm((prev) => ({ ...prev, reorderLevel: e.target.value }))}
-          />
-          <div className="md:col-span-2">
-            <TextArea
-              fullWidth
-              label="Notes"
-              placeholder="Optional notes about supplier, packaging, or handling."
-              value={productForm.notes}
-              onChange={(e) => setProductForm((prev) => ({ ...prev, notes: e.target.value }))}
-            />
-          </div>
-        </div>
-      </Modal>
-
-      <Modal
-        isOpen={isAddCategoryModalOpen}
-        onClose={closeCategoryModal}
-        title="Add Category"
-        primaryAction={{
-          label: "Save Category",
-          iconName: "FaFloppyDisk",
-          onClick: handleSaveCategory,
-          isLoading: isSavingCategory,
-          loadingText: "Saving",
-        }}
-        secondaryAction={{
-          label: "Cancel",
-          variant: "secondary",
-          onClick: closeCategoryModal,
-        }}
-      >
-        <div className="space-y-4">
-          <InputField
-            fullWidth
-            required
-            label="Category Name"
-            placeholder="Beverages"
-            value={newCategoryName}
-            onChange={(e) => setNewCategoryName(e.target.value)}
-          />
-          <TextArea
-            fullWidth
-            label="Description"
-            placeholder="Optional category description."
-            value={newCategoryDesc}
-            onChange={(e) => setNewCategoryDesc(e.target.value)}
-          />
-        </div>
-      </Modal>
-    </>
+    </PageShell>
   );
 
-  return <MainLayout content={content} />;
+  return (
+    <MainLayout
+      content={
+        <>
+          {body}
+          <Modal
+            isOpen={isNewProductModalOpen}
+            onClose={closeNewProductModal}
+            title="New Product"
+            size="lg"
+            primaryAction={{
+              label: "Save Product",
+              iconName: "FaFloppyDisk",
+              onClick: handleSaveNewProduct,
+              isLoading: isSavingProduct,
+              loadingText: "Saving",
+            }}
+            secondaryAction={{
+              label: "Cancel",
+              variant: "secondary",
+              onClick: closeNewProductModal,
+            }}
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <InputField
+                fullWidth
+                required
+                label="Product Name"
+                placeholder="Canned Tuna 155g"
+                value={productForm.productName}
+                onChange={(e) => setProductForm((prev) => ({ ...prev, productName: e.target.value }))}
+              />
+              <Select
+                fullWidth
+                required
+                label="Category"
+                value={productForm.category}
+                onChange={(e) => setProductForm((prev) => ({ ...prev, category: e.target.value }))}
+                options={[{ value: "", label: "Select category" }, ...categories.map((cat) => ({ value: cat.name, label: cat.name }))]}
+              />
+              <InputField
+                fullWidth
+                required
+                type="number"
+                min="0"
+                step="0.01"
+                label="Unit Price"
+                placeholder="0.00"
+                value={productForm.unitPrice}
+                onChange={(e) => setProductForm((prev) => ({ ...prev, unitPrice: e.target.value }))}
+              />
+              <InputField
+                fullWidth
+                required
+                type="number"
+                min="0"
+                step="1"
+                label="Current Stock"
+                placeholder="0"
+                value={productForm.stockQty}
+                onChange={(e) => setProductForm((prev) => ({ ...prev, stockQty: e.target.value }))}
+              />
+              <InputField
+                fullWidth
+                required
+                type="number"
+                min="0"
+                step="1"
+                label="Reorder Level"
+                placeholder="0"
+                value={productForm.reorderLevel}
+                onChange={(e) => setProductForm((prev) => ({ ...prev, reorderLevel: e.target.value }))}
+              />
+              <div className="md:col-span-2">
+                <TextArea
+                  fullWidth
+                  label="Notes"
+                  placeholder="Optional notes about supplier, packaging, or handling."
+                  value={productForm.notes}
+                  onChange={(e) => setProductForm((prev) => ({ ...prev, notes: e.target.value }))}
+                />
+              </div>
+            </div>
+          </Modal>
+
+          <Modal
+            isOpen={isAddCategoryModalOpen}
+            onClose={closeCategoryModal}
+            title="Add Category"
+            primaryAction={{
+              label: "Save Category",
+              iconName: "FaFloppyDisk",
+              onClick: handleSaveCategory,
+              isLoading: isSavingCategory,
+              loadingText: "Saving",
+            }}
+            secondaryAction={{
+              label: "Cancel",
+              variant: "secondary",
+              onClick: closeCategoryModal,
+            }}
+          >
+            <div className="space-y-4">
+              <InputField
+                fullWidth
+                required
+                label="Category Name"
+                placeholder="Beverages"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+              />
+              <TextArea
+                fullWidth
+                label="Description"
+                placeholder="Optional category description."
+                value={newCategoryDesc}
+                onChange={(e) => setNewCategoryDesc(e.target.value)}
+              />
+            </div>
+          </Modal>
+        </>
+      }
+    />
+  );
 };
 
 export default Dashboard;

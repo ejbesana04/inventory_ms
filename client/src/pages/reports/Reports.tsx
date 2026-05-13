@@ -1,36 +1,60 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AxiosError } from "axios";
 import MainLayout from "../../components/layouts/MainLayout";
 import { Button, LoadingSpinner } from "../../components/ui";
 import ReportService, { type ReportSummaryPayload } from "../../services/ReportService";
+import { PageShell } from "../../components/page/PageShell";
 import { notify } from "../../util/notify";
 
 const dateInputValue = (value: Date) => value.toISOString().slice(0, 10);
 
 const Reports = () => {
+  const initialFrom = dateInputValue(new Date(Date.now() - 1000 * 60 * 60 * 24 * 30));
+  const initialTo = dateInputValue(new Date());
+
+  const [draftFrom, setDraftFrom] = useState(initialFrom);
+  const [draftTo, setDraftTo] = useState(initialTo);
+  const [appliedRange, setAppliedRange] = useState({ from: initialFrom, to: initialTo });
   const [summary, setSummary] = useState<ReportSummaryPayload | null>(null);
   const [loading, setLoading] = useState(true);
-  const [from, setFrom] = useState(dateInputValue(new Date(Date.now() - 1000 * 60 * 60 * 24 * 30)));
-  const [to, setTo] = useState(dateInputValue(new Date()));
+  const [isRefetching, setIsRefetching] = useState(false);
+  const finishedInitialRequest = useRef(false);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const res = (await ReportService.getSummary({ from, to })) as { data?: ReportSummaryPayload };
-      setSummary(res?.data ?? null);
-    } catch (error) {
-      const err = error as AxiosError<{ message?: string }>;
-      notify.error(err.response?.data?.message || "Unable to load reports summary.");
-      setSummary(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [isDownloading, setIsDownloading] = useState(false);
 
   useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let cancelled = false;
+    const isFirst = !finishedInitialRequest.current;
+
+    const run = async () => {
+      if (isFirst) setLoading(true);
+      else setIsRefetching(true);
+      try {
+        const res = (await ReportService.getSummary({
+          from: appliedRange.from,
+          to: appliedRange.to,
+        })) as { data?: ReportSummaryPayload };
+        if (!cancelled) setSummary(res?.data ?? null);
+      } catch (error) {
+        const err = error as AxiosError<{ message?: string }>;
+        if (!cancelled) {
+          notify.error(err.response?.data?.message || "Unable to load reports summary.");
+          setSummary(null);
+        }
+      } finally {
+        if (!cancelled) {
+          finishedInitialRequest.current = true;
+          setLoading(false);
+          setIsRefetching(false);
+        }
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [appliedRange.from, appliedRange.to]);
 
   const cards = useMemo(() => {
     const kpis = summary?.kpis;
@@ -47,6 +71,30 @@ const Reports = () => {
     ];
   }, [summary]);
 
+  const applyRange = () => {
+    setAppliedRange({ from: draftFrom, to: draftTo });
+  };
+
+  const handleDownloadPdf = useCallback(async () => {
+    if (!appliedRange.from || !appliedRange.to) {
+      notify.warning("Select a valid date range first.");
+      return;
+    }
+    setIsDownloading(true);
+    try {
+      await ReportService.downloadSummaryPdf({
+        from: appliedRange.from,
+        to: appliedRange.to,
+      });
+      notify.success("PDF report downloaded.");
+    } catch (error) {
+      const err = error as Error;
+      notify.error(err.message || "PDF download failed.");
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [appliedRange.from, appliedRange.to]);
+
   const content = (
     <div className="space-y-6 pb-8 w-full max-w-full min-w-0 overflow-x-clip">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -57,14 +105,14 @@ const Reports = () => {
       </div>
 
       <div className="rounded-2xl border border-border-muted bg-bg-light p-4 shadow-sm">
-        <div className="flex flex-col lg:flex-row gap-3 lg:items-end">
+        <div className="flex flex-col flex-wrap gap-3 lg:flex-row lg:items-end">
           <div className="flex flex-col gap-1">
             <label className="text-xs font-semibold uppercase tracking-wide text-text-muted">From</label>
             <input
               type="date"
               className="rounded-lg border border-border-muted bg-bg-main px-3 py-2 text-sm text-text outline-none"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
+              value={draftFrom}
+              onChange={(e) => setDraftFrom(e.target.value)}
             />
           </div>
           <div className="flex flex-col gap-1">
@@ -72,21 +120,35 @@ const Reports = () => {
             <input
               type="date"
               className="rounded-lg border border-border-muted bg-bg-main px-3 py-2 text-sm text-text outline-none"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
+              value={draftTo}
+              onChange={(e) => setDraftTo(e.target.value)}
             />
           </div>
-          <Button variant="primary" iconName="FaArrowsRotate" onClick={() => void load()}>
+          <Button variant="primary" iconName="FaArrowsRotate" onClick={applyRange}>
             Apply Range
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            iconName="FaFilePdf"
+            isLoading={isDownloading}
+            loadingText="Preparing"
+            onClick={() => void handleDownloadPdf()}
+          >
+            Download PDF
           </Button>
         </div>
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-12">
-          <LoadingSpinner size="md" />
-        </div>
-      ) : (
+      <PageShell
+        isInitialLoading={loading && !finishedInitialRequest.current}
+        isFetching={isRefetching}
+        skeleton={
+          <div className="flex justify-center py-12">
+            <LoadingSpinner size="md" />
+          </div>
+        }
+      >
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 w-full min-w-0">
             {cards.map((card) => (
@@ -121,7 +183,9 @@ const Reports = () => {
                     ))}
                     {(summary?.low_stock_items?.length ?? 0) === 0 && (
                       <tr>
-                        <td className="py-4 text-text-muted text-center" colSpan={4}>No low stock items.</td>
+                        <td className="py-4 text-text-muted text-center" colSpan={4}>
+                          No low stock items.
+                        </td>
                       </tr>
                     )}
                   </tbody>
@@ -152,7 +216,9 @@ const Reports = () => {
                     ))}
                     {(summary?.recent_sales?.length ?? 0) === 0 && (
                       <tr>
-                        <td className="py-4 text-text-muted text-center" colSpan={4}>No sales in selected range.</td>
+                        <td className="py-4 text-text-muted text-center" colSpan={4}>
+                          No sales in selected range.
+                        </td>
                       </tr>
                     )}
                   </tbody>
@@ -161,7 +227,7 @@ const Reports = () => {
             </section>
           </div>
         </>
-      )}
+      </PageShell>
     </div>
   );
 

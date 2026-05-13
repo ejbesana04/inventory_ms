@@ -9,9 +9,11 @@ use App\Models\Sale;
 use App\Models\StockMovement;
 use App\Models\Supplier;
 use App\Traits\ApiResponse;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends Controller
@@ -19,6 +21,26 @@ class ReportController extends Controller
     use ApiResponse;
 
     public function summary(Request $request): JsonResponse
+    {
+        return $this->success($this->summaryPayload($request), 'Reports summary.');
+    }
+
+    public function summaryPdf(Request $request): Response
+    {
+        $data = $this->summaryPayload($request);
+
+        $pdf = Pdf::loadView('reports.summary_pdf', ['report' => $data])
+            ->setPaper('a4', 'portrait');
+
+        $filename = sprintf('inventory-summary-%s-to-%s.pdf', $data['period']['from'], $data['period']['to']);
+
+        return $pdf->download($filename);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function summaryPayload(Request $request): array
     {
         [$from, $to] = $this->range($request);
 
@@ -54,11 +76,11 @@ class ReportController extends Controller
                 'customer' => $sale->customer?->name,
                 'total' => (float) $sale->total,
                 'status' => $sale->status,
-                'created_at' => $sale->created_at,
+                'created_at' => $sale->created_at?->format('Y-m-d H:i') ?? '',
             ])
             ->values();
 
-        return $this->success([
+        return [
             'period' => [
                 'from' => $from->toDateString(),
                 'to' => $to->toDateString(),
@@ -75,7 +97,7 @@ class ReportController extends Controller
             ],
             'low_stock_items' => $lowStockItems,
             'recent_sales' => $recentSales,
-        ], 'Reports summary.');
+        ];
     }
 
     public function inventorySummary(Request $request): JsonResponse
@@ -171,6 +193,10 @@ class ReportController extends Controller
     {
         $from = Carbon::parse($request->input('from', now()->subDays(30)->toDateString()))->startOfDay();
         $to = Carbon::parse($request->input('to', now()->toDateString()))->endOfDay();
+
+        if ($from->greaterThan($to)) {
+            [$from, $to] = [$to->copy()->startOfDay(), $from->copy()->endOfDay()];
+        }
 
         return [$from, $to];
     }

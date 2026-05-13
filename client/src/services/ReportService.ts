@@ -45,6 +45,42 @@ const ReportService = {
       AxiosInstance.get<{ status: string; message: string; data: ReportSummaryPayload }>("v1/reports/summary", { params }),
       "Failed to fetch reports summary"
     ),
+
+  /**
+   * Downloads the same summary report as PDF (binary). Uses raw axios so `responseType: blob` works.
+   */
+  downloadSummaryPdf: async (params: { from: string; to: string }): Promise<void> => {
+    const response = await AxiosInstance.get<Blob>("v1/reports/summary/pdf", {
+      params,
+      responseType: "blob",
+      headers: { Accept: "application/pdf" },
+    });
+
+    const blob = response.data;
+    const header = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+    const signature = String.fromCharCode(...header);
+    if (signature !== "%PDF") {
+      const text = await blob.text();
+      let message = "Server did not return a valid PDF.";
+      try {
+        const parsed = JSON.parse(text) as { message?: string };
+        if (parsed.message) message = parsed.message;
+      } catch {
+        // keep default message
+      }
+      throw new Error(message);
+    }
+
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `inventory-summary-${params.from}-to-${params.to}.pdf`;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  },
 };
 
 export default ReportService;

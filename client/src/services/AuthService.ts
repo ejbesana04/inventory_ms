@@ -8,6 +8,9 @@ type ApiEnvelope<T> = {
   data: T;
 };
 
+/** Deduplicate concurrent `/v1/auth/me` calls (e.g. React StrictMode dev double-mount). */
+let sessionRequest: Promise<User | null> | null = null;
+
 class AuthService {
   async ensureCsrfCookie(): Promise<void> {
     await webClient.get("/sanctum/csrf-cookie");
@@ -31,16 +34,27 @@ class AuthService {
     await webClient.post("/logout");
   }
 
+  clearSessionRequestCache(): void {
+    sessionRequest = null;
+  }
+
   async fetchCurrentUser(): Promise<User | null> {
-    try {
-      const { data } = await AxiosInstance.get<ApiEnvelope<{ user: User }>>("/v1/auth/me");
-      if (data.status !== "Success" || !data.data?.user) {
-        return null;
-      }
-      return data.data.user;
-    } catch {
-      return null;
+    if (!sessionRequest) {
+      sessionRequest = (async (): Promise<User | null> => {
+        try {
+          const { data } = await AxiosInstance.get<ApiEnvelope<{ user: User }>>("/v1/auth/me");
+          if (data.status !== "Success" || !data.data?.user) {
+            return null;
+          }
+          return data.data.user;
+        } catch {
+          return null;
+        }
+      })().finally(() => {
+        sessionRequest = null;
+      });
     }
+    return sessionRequest;
   }
 }
 

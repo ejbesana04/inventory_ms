@@ -66,6 +66,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('permission:dashboard.view')->group(function () {
         Route::get('v1/reports/summary', [ReportController::class, 'summary']);
+        Route::get('v1/reports/summary/pdf', [ReportController::class, 'summaryPdf']);
         Route::get('v1/reports/low-stock', [ReportController::class, 'lowStock']);
         Route::get('v1/reports/inventory', [ReportController::class, 'inventorySummary']);
         Route::get('v1/reports/stock-movement', [ReportController::class, 'stockMovement']);

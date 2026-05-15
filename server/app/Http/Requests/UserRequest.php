@@ -15,7 +15,7 @@ class UserRequest extends FormRequest
     {
         $user = $this->user();
 
-        return $user !== null && $user->hasPermission('users.manage');
+        return $user !== null && UserRolePolicy::canManageUsers($user);
     }
 
     protected function prepareForValidation(): void

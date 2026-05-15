@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\UserRole;
+use App\Support\UserRolePolicy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -63,6 +64,10 @@ class User extends Authenticatable
     public function hasPermission(string $slug): bool
     {
         if ($this->role === UserRole::ADMIN) {
+            return true;
+        }
+
+        if ($slug === 'users.manage' && UserRolePolicy::canManageUsers($this)) {
             return true;
         }
 

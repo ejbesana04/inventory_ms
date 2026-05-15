@@ -7,6 +7,11 @@ use App\Models\User;
 
 class UserRolePolicy
 {
+    public static function canManageUsers(User $user): bool
+    {
+        return in_array($user->role, [UserRole::ADMIN, UserRole::MANAGER], true);
+    }
+
     /**
      * Roles the actor may assign when creating or updating users.
      *

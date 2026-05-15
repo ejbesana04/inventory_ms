@@ -4,17 +4,18 @@ namespace App\Http\Requests;
 
 use App\Enums\UserRole;
 use App\Models\User;
+use App\Support\UserRolePolicy;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 class UserRequest extends FormRequest
 {
-    /**
-     * Determine if the user is authorized to make this request.
-     */
     public function authorize(): bool
     {
-        return true;
+        $user = $this->user();
+
+        return $user !== null && $user->hasPermission('users.manage');
     }
 
     protected function prepareForValidation(): void
@@ -27,8 +28,6 @@ class UserRequest extends FormRequest
     }
 
     /**
-     * Get the validation rules that apply to the request.
-     *
      * @return array<string, array<int, mixed>|string>
      */
     public function rules(): array
@@ -39,6 +38,9 @@ class UserRequest extends FormRequest
         $passwordRules = $this->isMethod('post')
             ? ['required', 'string', 'min:8', 'confirmed']
             : ['sometimes', 'string', 'min:8', 'confirmed'];
+
+        $actor = $this->user();
+        $allowedRoles = $actor ? UserRolePolicy::assignableRoles($actor) : [];
 
         return [
             'slug' => [
@@ -55,10 +57,25 @@ class UserRequest extends FormRequest
                 Rule::unique('users', 'email')->ignore($userId),
             ],
             'password' => $passwordRules,
-            'role' => ['required', Rule::in(UserRole::values())],
+            'role' => ['required', Rule::in($allowedRoles)],
             'phone' => ['nullable', 'string', 'max:25'],
             'address' => ['nullable', 'string', 'max:255'],
             'is_active' => ['sometimes', 'boolean'],
         ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            $actor = $this->user();
+            if (! $actor) {
+                return;
+            }
+
+            $routeUser = $this->route('user');
+            if ($routeUser instanceof User && ! UserRolePolicy::canManageUser($actor, $routeUser)) {
+                $validator->errors()->add('role', 'You are not allowed to modify this account.');
+            }
+        });
     }
 }

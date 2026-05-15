@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Modal from "../../../components/ui/Modal";
 import { notify } from "../../../util/notify";
 import { InputField, PasswordInputField } from "../../../components/ui/forms";
 import type { Role } from "../../../interfaces/user";
 import UserService from "../../../services/UserSerivce";
+import { useAuth } from "../../../contexts/AuthContext";
+import { assignableRoles, roleLabel } from "../../../util/userRoles";
 
 type Props = {
   isOpen: boolean;
@@ -26,6 +28,10 @@ interface FormErrors {
 }
 
 const CreateUserModal = ({ isOpen, onClose }: Props) => {
+    const { user: currentUser } = useAuth();
+    const roles = assignableRoles(currentUser?.role);
+    const defaultRole: Role = roles.includes("staff") ? "staff" : roles[0] ?? "staff";
+
     const [isLoading, setIsLoading] = useState(false);
     const [errors, setErrors] = useState<FormErrors>({});
 
@@ -36,11 +42,17 @@ const CreateUserModal = ({ isOpen, onClose }: Props) => {
         address: "",
         password: "",
         password_confirmation: "",
-        role: "staff",
+        role: defaultRole,
         is_active: true,
     };
 
     const [form, setForm] = useState<UserFormData>(initialFormState);
+
+    useEffect(() => {
+        if (isOpen) {
+            setForm({ ...initialFormState, role: defaultRole });
+        }
+    }, [isOpen, defaultRole]);
 
     const handleChange = (name: string, value: string | Role) => {
         setForm((prev) => ({
@@ -202,11 +214,28 @@ const CreateUserModal = ({ isOpen, onClose }: Props) => {
                         onChange={(e) => handleChange("role", e.target.value as Role)}
                         className="w-full rounded-lg border border-border bg-bg-dark px-3 py-2 text-sm text-text"
                     >
-                        <option value="staff">Staff</option>
-                        <option value="manager">Manager</option>
-                        <option value="admin">Admin</option>
+                        {roles.map((role) => (
+                            <option key={role} value={role}>
+                                {roleLabel(role)}
+                            </option>
+                        ))}
                     </select>
                     {errors.role ? <p className="text-xs text-danger">{errors.role}</p> : null}
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <input
+                        type="checkbox"
+                        id="create_is_active"
+                        checked={form.is_active}
+                        onChange={(e) =>
+                            setForm((prev) => ({ ...prev, is_active: e.target.checked }))
+                        }
+                        className="w-4 h-4 rounded border-border focus:ring-primary"
+                    />
+                    <label htmlFor="create_is_active" className="text-sm text-text">
+                        Active (user can sign in)
+                    </label>
                 </div>
 
             </form>

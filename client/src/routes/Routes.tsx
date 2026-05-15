@@ -2,7 +2,7 @@ import React, { Suspense } from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AuthProviderLayout } from "../contexts/AuthContext";
 import { PATHS } from "./path";
-import { ProtectedLayout, RootRedirect } from "./AuthGuards";
+import { ProtectedLayout, RoleProtectedLayout, RootRedirect } from "./AuthGuards";
 import { LoadingSpinner } from "../components/ui";
 import { NAV_GROUPS } from "../navigation/modules";
 
@@ -98,7 +98,13 @@ export const Routes = createBrowserRouter([
           },
           {
             path: "users",
-            element: lazyPage(<Users />),
+            element: <RoleProtectedLayout allowedRoles={["admin", "manager"]} />,
+            children: [
+              {
+                index: true,
+                element: lazyPage(<Users />),
+              },
+            ],
           },
           {
             path: "stock-in",

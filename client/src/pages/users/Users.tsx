@@ -19,6 +19,7 @@ import type { User } from '../../interfaces/user';
 import { notify } from '../../util/notify';
 import { useDebounce, useDateFormatter } from '../../hooks/index';
 import { useAuth } from '../../contexts/AuthContext';
+import { canManageUsers } from '../../util/userRoles';
 
 /* =========================
    TYPES
@@ -37,9 +38,7 @@ type PaginationMeta = {
 
 const Users = () => {
   const { user: currentUser, isLoading: authLoading } = useAuth();
-  const canManageUsers = Boolean(
-    currentUser && (currentUser.role === 'admin' || currentUser.role === 'manager')
-  );
+  const userCanManage = canManageUsers(currentUser?.role);
 
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -110,12 +109,12 @@ const Users = () => {
   };
 
   useEffect(() => {
-    if (!canManageUsers) {
+    if (!userCanManage) {
       setIsLoading(false);
       return;
     }
     void fetchUsers(page, pageSize);
-  }, [page, pageSize, sort, debouncedSearchTerm, filter, canManageUsers]);
+  }, [page, pageSize, sort, debouncedSearchTerm, filter, userCanManage]);
 
   /* =========================
      SORT HANDLER
@@ -207,7 +206,7 @@ const Users = () => {
     );
   }
 
-  if (!canManageUsers) {
+  if (!userCanManage) {
     return (
       <MainLayout
         content={
@@ -395,9 +394,14 @@ const Users = () => {
                           size="sm"
                           variant="outline"
                           iconName="FaPencil"
-                          tooltip="Edit user"
+                          tooltip={
+                            currentUser?.role === 'manager' && user.role === 'admin'
+                              ? 'Managers cannot edit administrator accounts'
+                              : 'Edit user'
+                          }
                           tooltipPosition="top"
                           className="text-info border-info hover:bg-info hover:text-bg-dark"
+                          disabled={currentUser?.role === 'manager' && user.role === 'admin'}
                           onClick={() => setEditUser(user)}
                         />
                         <Button

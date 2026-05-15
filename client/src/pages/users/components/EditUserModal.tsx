@@ -5,6 +5,8 @@ import { InputField, PasswordInputField, Select } from '../../../components/ui/f
 import UserService from '../../../services/UserSerivce';
 import { notify } from '../../../util/notify';
 import type { User, Role } from '../../../interfaces/user';
+import { useAuth } from '../../../contexts/AuthContext';
+import { assignableRoles, roleLabel } from '../../../util/userRoles';
 
 interface EditUserModalProps {
   isOpen: boolean;
@@ -16,10 +18,16 @@ interface EditUserModalProps {
 type FormErrors = Record<string, string>;
 
 const EditUserModal = ({ isOpen, onClose, onSuccess, user }: EditUserModalProps) => {
+  const { user: currentUser } = useAuth();
+  const roles = assignableRoles(currentUser?.role);
+  const isAdminTarget = user.role === 'admin';
+  const managerCannotEditAdmin = currentUser?.role === 'manager' && isAdminTarget;
+
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     phone: '',
+    address: '',
     role: 'staff' as Role,
     is_active: true,
     password: '',
@@ -35,6 +43,7 @@ const EditUserModal = ({ isOpen, onClose, onSuccess, user }: EditUserModalProps)
         name: user.name || '',
         email: user.email || '',
         phone: user.phone || '',
+        address: user.address || '',
         role,
         is_active: user.is_active ?? true,
         password: '',
@@ -84,6 +93,7 @@ const EditUserModal = ({ isOpen, onClose, onSuccess, user }: EditUserModalProps)
         name: formData.name.trim(),
         email: formData.email.trim(),
         phone: formData.phone.trim() || null,
+        address: formData.address.trim() || null,
         role: formData.role,
         is_active: formData.is_active,
       };
@@ -165,19 +175,30 @@ const EditUserModal = ({ isOpen, onClose, onSuccess, user }: EditUserModalProps)
           placeholder="+63 XXX XXX XXXX"
           error={errors.phone}
         />
+        <InputField
+          fullWidth
+          label="Address"
+          name="address"
+          value={formData.address}
+          onChange={handleChange}
+          placeholder="Address"
+          error={errors.address}
+        />
         <Select
           fullWidth
           label="Role"
           name="role"
           value={formData.role}
           onChange={handleChange}
-          options={[
-            { value: 'staff', label: 'Staff' },
-            { value: 'manager', label: 'Manager' },
-            { value: 'admin', label: 'Admin' },
-          ]}
+          disabled={managerCannotEditAdmin}
+          options={roles.map((role) => ({ value: role, label: roleLabel(role) }))}
           error={errors.role}
         />
+        {managerCannotEditAdmin ? (
+          <p className="text-xs text-text-muted">
+            Manager accounts cannot change administrator roles.
+          </p>
+        ) : null}
         <div className="flex items-center gap-2">
           <input
             type="checkbox"

@@ -41,3 +41,29 @@ export function ProtectedLayout() {
 
   return <Outlet />;
 }
+
+type RoleProtectedLayoutProps = {
+  allowedRoles: Array<"admin" | "manager">;
+  redirectTo?: string;
+};
+
+export function RoleProtectedLayout({
+  allowedRoles,
+  redirectTo = PATHS.APP.DASHBOARD,
+}: RoleProtectedLayoutProps) {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <FullPageLoading />;
+  }
+
+  if (!user) {
+    return <Navigate to={PATHS.LOGIN} replace />;
+  }
+
+  if (!allowedRoles.includes(user.role as "admin" | "manager")) {
+    return <Navigate to={redirectTo} replace />;
+  }
+
+  return <Outlet />;
+}

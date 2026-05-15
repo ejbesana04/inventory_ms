@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API\v1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\UserRequest;
 use App\Models\User;
+use App\Support\UserRolePolicy;
 use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -54,6 +55,12 @@ class UserController extends Controller
     public function store(UserRequest $request): JsonResponse
     {
         $validated = $request->validated();
+        $actor = $request->user();
+
+        if (! UserRolePolicy::canAssignRole($actor, $validated['role'])) {
+            return $this->error('You are not allowed to assign this role.', 403);
+        }
+
         $user = User::create($validated);
 
         return $this->success($user->fresh(), 'User created successfully.', 201);
@@ -62,9 +69,13 @@ class UserController extends Controller
     /**
      * Display the specified resource (including soft-deleted, for admin review).
      */
-    public function show(string $user): JsonResponse
+    public function show(Request $request, string $user): JsonResponse
     {
         $model = User::withTrashed()->findOrFail($user);
+
+        if (! UserRolePolicy::canManageUser($request->user(), $model)) {
+            return $this->error('You are not allowed to view this account.', 403);
+        }
 
         return $this->success($model, 'User fetched successfully.');
     }
@@ -74,7 +85,18 @@ class UserController extends Controller
      */
     public function update(UserRequest $request, User $user): JsonResponse
     {
+        $actor = $request->user();
+
+        if (! UserRolePolicy::canManageUser($actor, $user)) {
+            return $this->error('You are not allowed to modify this account.', 403);
+        }
+
         $validated = $request->validated();
+
+        if (! UserRolePolicy::canAssignRole($actor, $validated['role'])) {
+            return $this->error('You are not allowed to assign this role.', 403);
+        }
+
         $user->update($validated);
 
         return $this->success($user->fresh(), 'User updated successfully.');
@@ -89,6 +111,10 @@ class UserController extends Controller
             return $this->error('You cannot delete your own account.', 422);
         }
 
+        if (! UserRolePolicy::canManageUser($request->user(), $user)) {
+            return $this->error('You are not allowed to delete this account.', 403);
+        }
+
         $user->delete();
 
         return $this->success(null, 'User deleted successfully.');
@@ -97,9 +123,14 @@ class UserController extends Controller
     /**
      * Restore a soft-deleted user.
      */
-    public function restore(int $id): JsonResponse
+    public function restore(Request $request, int $id): JsonResponse
     {
         $user = User::onlyTrashed()->findOrFail($id);
+
+        if (! UserRolePolicy::canManageUser($request->user(), $user)) {
+            return $this->error('You are not allowed to restore this account.', 403);
+        }
+
         $user->restore();
 
         return $this->success($user->fresh(), 'User restored successfully.');
@@ -108,7 +139,7 @@ class UserController extends Controller
     public function activeCount(): JsonResponse
     {
         return $this->success([
-            'count' => User::query()->count(),
+            'count' => User::query()->where('is_active', true)->count(),
         ], 'Active user count fetched successfully.');
     }
 }

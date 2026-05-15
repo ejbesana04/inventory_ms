@@ -6,11 +6,15 @@ use App\Http\Controllers\API\v1\ProductController;
 use App\Http\Controllers\API\v1\PurchaseOrderController;
 use App\Http\Controllers\API\v1\ReportController;
 use App\Http\Controllers\API\v1\SaleController;
+use App\Http\Controllers\API\v1\SetupController;
 use App\Http\Controllers\API\v1\StockMovementController;
 use App\Http\Controllers\API\v1\SupplierController;
 use App\Http\Controllers\API\v1\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+
+Route::get('v1/setup/status', [SetupController::class, 'status']);
+Route::post('v1/setup/first-user', [SetupController::class, 'storeFirstUser']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('v1/auth/me', function (Request $request) {

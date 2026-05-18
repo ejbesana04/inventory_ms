@@ -159,16 +159,24 @@ const Login = () => {
                     required
                   />
 
-                  <label className="flex items-center gap-2 text-sm text-text cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={remember}
-                      onChange={(ev) => setRemember(ev.target.checked)}
-                      disabled={isSubmitting}
-                      className="h-4 w-4 rounded border-border-muted text-primary focus:ring-primary/30"
-                    />
-                    <span className="text-text-muted">Keep me signed in on this device</span>
-                  </label>
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <label className="flex items-center gap-2 text-sm text-text cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={remember}
+                        onChange={(ev) => setRemember(ev.target.checked)}
+                        disabled={isSubmitting}
+                        className="h-4 w-4 rounded border-border-muted text-primary focus:ring-primary/30"
+                      />
+                      <span className="text-text-muted">Keep me signed in on this device</span>
+                    </label>
+                    <Link
+                      to={PATHS.FORGOT_PASSWORD}
+                      className="text-sm font-semibold text-primary hover:underline"
+                    >
+                      Forgot password?
+                    </Link>
+                  </div>
 
                   <Button
                     type="submit"

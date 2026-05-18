@@ -5,6 +5,8 @@ const p = (segment: string) => `${APP_ROOT}/${segment}`;
 export const PATHS = {
   HOME: "/",
   LOGIN: "/login",
+  FORGOT_PASSWORD: "/forgot-password",
+  RESET_PASSWORD: "/reset-password",
 
   APP: {
     ROOT: APP_ROOT,

@@ -9,6 +9,8 @@ import { NAV_GROUPS } from "../navigation/modules";
 const Dashboard = React.lazy(() => import("../pages/Dashboard"));
 const Users = React.lazy(() => import("../pages/users/Users"));
 const Login = React.lazy(() => import("../pages/auth/Login"));
+const ForgotPassword = React.lazy(() => import("../pages/auth/ForgotPassword"));
+const ResetPassword = React.lazy(() => import("../pages/auth/ResetPassword"));
 const ModulePlaceholder = React.lazy(() => import("../pages/ModulePlaceholder"));
 const Products = React.lazy(() => import("../pages/products/Products"));
 const Suppliers = React.lazy(() => import("../pages/suppliers/Suppliers"));
@@ -63,6 +65,14 @@ export const Routes = createBrowserRouter([
       {
         path: PATHS.LOGIN,
         element: lazyPage(<Login />),
+      },
+      {
+        path: PATHS.FORGOT_PASSWORD,
+        element: lazyPage(<ForgotPassword />),
+      },
+      {
+        path: PATHS.RESET_PASSWORD,
+        element: lazyPage(<ResetPassword />),
       },
       {
         path: PATHS.APP.ROOT,

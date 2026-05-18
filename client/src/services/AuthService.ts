@@ -38,6 +38,27 @@ class AuthService {
     sessionRequest = null;
   }
 
+  async requestPasswordReset(email: string): Promise<void> {
+    const { data } = await AxiosInstance.post<ApiEnvelope<null>>("/v1/auth/forgot-password", {
+      email,
+    });
+    if (data.status !== "Success") {
+      throw new Error(data.message || "Unable to send reset link.");
+    }
+  }
+
+  async resetPassword(payload: {
+    email: string;
+    token: string;
+    password: string;
+    password_confirmation: string;
+  }): Promise<void> {
+    const { data } = await AxiosInstance.post<ApiEnvelope<null>>("/v1/auth/reset-password", payload);
+    if (data.status !== "Success") {
+      throw new Error(data.message || "Unable to reset password.");
+    }
+  }
+
   async fetchCurrentUser(): Promise<User | null> {
     if (!sessionRequest) {
       sessionRequest = (async (): Promise<User | null> => {

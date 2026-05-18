@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Auth\PasswordResetController;
+use App\Http\Controllers\Auth\TokenAuthController;
 use App\Http\Controllers\API\v1\CategoryController;
 use App\Http\Controllers\API\v1\DashboardController;
 use App\Http\Controllers\API\v1\ProductController;
@@ -16,7 +18,12 @@ use Illuminate\Support\Facades\Route;
 Route::get('v1/setup/status', [SetupController::class, 'status']);
 Route::post('v1/setup/first-user', [SetupController::class, 'storeFirstUser']);
 
+Route::post('v1/auth/login', [TokenAuthController::class, 'login']);
+Route::post('v1/auth/forgot-password', [PasswordResetController::class, 'forgotPassword']);
+Route::post('v1/auth/reset-password', [PasswordResetController::class, 'resetPassword']);
+
 Route::middleware('auth:sanctum')->group(function () {
+    Route::post('v1/auth/logout', [TokenAuthController::class, 'logout']);
     Route::get('v1/auth/me', function (Request $request) {
         return response()->json([
             'status' => 'Success',

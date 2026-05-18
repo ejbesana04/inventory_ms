@@ -26,12 +26,18 @@ interface NewProductFormState {
   notes: string;
 }
 
+interface NewCategoryFormState {
+  name: string;
+  description: string;
+}
+
 const Dashboard = () => {
   const navigate = useNavigate();
   const [isNewProductModalOpen, setIsNewProductModalOpen] = useState(false);
-  const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [isSavingCategory, setIsSavingCategory] = useState(false);
+  const [isAddingCategoryInline, setIsAddingCategoryInline] = useState(false);
+
   const [productForm, setProductForm] = useState<NewProductFormState>({
     productName: "",
     category: "",
@@ -40,8 +46,11 @@ const Dashboard = () => {
     reorderLevel: "",
     notes: "",
   });
-  const [newCategoryName, setNewCategoryName] = useState("");
-  const [newCategoryDesc, setNewCategoryDesc] = useState("");
+
+  const [categoryForm, setCategoryForm] = useState<NewCategoryFormState>({
+    name: "",
+    description: "",
+  });
 
   const [bundle, setBundle] = useState<{
     summary: DashboardSummary | null;
@@ -49,6 +58,7 @@ const Dashboard = () => {
     categories: Category[];
     recentMovements: StockMovementItem[];
   } | null>(null);
+
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -61,6 +71,7 @@ const Dashboard = () => {
       setIsInitialLoad(true);
     }
     setLoadError(false);
+
     try {
       const data = await loadDashboardBundle();
       setBundle(data);
@@ -120,6 +131,7 @@ const Dashboard = () => {
         reorder: p.reorder_level,
       }));
     }
+
     return products
       .filter((item) => item.qty <= item.reorder)
       .slice(0, 8)
@@ -134,12 +146,13 @@ const Dashboard = () => {
 
   const latestProducts = useMemo(
     () =>
-      [...products].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 6),
+      [...products]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 6),
     [products]
   );
 
   const handleNewProduct = () => setIsNewProductModalOpen(true);
-  const handleAddCategory = () => setIsAddCategoryModalOpen(true);
 
   const resetNewProductForm = () => {
     setProductForm({
@@ -152,17 +165,19 @@ const Dashboard = () => {
     });
   };
 
-  const closeNewProductModal = () => {
-    if (isSavingProduct) return;
-    setIsNewProductModalOpen(false);
-    resetNewProductForm();
+  const resetCategoryForm = () => {
+    setCategoryForm({
+      name: "",
+      description: "",
+    });
   };
 
-  const closeCategoryModal = () => {
-    if (isSavingCategory) return;
-    setIsAddCategoryModalOpen(false);
-    setNewCategoryName("");
-    setNewCategoryDesc("");
+  const closeNewProductModal = () => {
+    if (isSavingProduct || isSavingCategory) return;
+    setIsNewProductModalOpen(false);
+    setIsAddingCategoryInline(false);
+    resetNewProductForm();
+    resetCategoryForm();
   };
 
   const generateSku = (productName: string): string => {
@@ -207,10 +222,13 @@ const Dashboard = () => {
         reorder_level: reorderLevel,
         notes: productForm.notes.trim() || undefined,
       });
+
       await loadBundle({ silent: true });
       notify.success(`Product "${productForm.productName}" saved (SKU: ${generatedSku}).`);
       setIsNewProductModalOpen(false);
+      setIsAddingCategoryInline(false);
       resetNewProductForm();
+      resetCategoryForm();
     } catch (err) {
       const axiosError = err as AxiosError<{ message?: string }>;
       notify.error(axiosError.response?.data?.message || "Unable to save product.");
@@ -219,8 +237,18 @@ const Dashboard = () => {
     }
   };
 
-  const handleSaveCategory = async () => {
-    const name = newCategoryName.trim();
+  const handleShowCategoryInlineForm = () => {
+    setIsAddingCategoryInline(true);
+  };
+
+  const handleCancelCategoryInlineForm = () => {
+    if (isSavingCategory) return;
+    setIsAddingCategoryInline(false);
+    resetCategoryForm();
+  };
+
+  const handleSaveCategoryInline = async () => {
+    const name = categoryForm.name.trim();
     if (!name) {
       notify.warning("Category name is required.");
       return;
@@ -230,11 +258,14 @@ const Dashboard = () => {
     try {
       await CategoryService.create({
         name,
-        description: newCategoryDesc.trim() || undefined,
+        description: categoryForm.description.trim() || undefined,
       });
+
       await loadBundle({ silent: true });
+      setProductForm((prev) => ({ ...prev, category: name }));
       notify.success(`Category "${name}" added.`);
-      closeCategoryModal();
+      setIsAddingCategoryInline(false);
+      resetCategoryForm();
     } catch (err) {
       const axiosError = err as AxiosError<{ message?: string }>;
       notify.error(axiosError.response?.data?.message || "Unable to save category.");
@@ -267,11 +298,12 @@ const Dashboard = () => {
       skeleton={<DashboardSkeleton />}
     >
       <div className="space-y-6 pb-8 w-full max-w-full min-w-0 overflow-x-clip">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-text">Inventory Operations Dashboard</h1>
             <p className="text-sm text-text-muted">Track stock health, sales movement, and team activity in one place.</p>
           </div>
+
           <div className="flex items-center gap-2">
             <Button variant="primary" iconName="FaPlus" onClick={handleNewProduct}>
               New Product
@@ -347,7 +379,9 @@ const Dashboard = () => {
                   <div key={`${movement.item}-${index}`} className="rounded-xl border border-border-muted bg-bg-main p-3">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <p className="text-sm font-medium text-text break-words flex-1">{movement.item}</p>
-                      <span className="text-xs capitalize px-2 py-1 rounded-md bg-primary/15 text-primary shrink-0">{movement.type}</span>
+                      <span className="text-xs capitalize px-2 py-1 rounded-md bg-primary/15 text-primary shrink-0">
+                        {movement.type}
+                      </span>
                     </div>
                     <p className="text-xs text-text-muted mt-1 break-words">
                       Qty: <span className="text-text">{movement.qty}</span> | By: {movement.by}
@@ -378,7 +412,9 @@ const Dashboard = () => {
                       <td className="py-2 text-text-muted break-words pr-2">{new Date(log.created_at).toLocaleString()}</td>
                       <td className="py-2 text-text break-words pr-2">{log.user}</td>
                       <td className="py-2 break-words pr-2">
-                        <span className="text-xs px-2 py-1 rounded-md bg-info/15 text-info font-semibold break-words inline-block">{log.action}</span>
+                        <span className="text-xs px-2 py-1 rounded-md bg-info/15 text-info font-semibold break-words inline-block">
+                          {log.action}
+                        </span>
                       </td>
                       <td className="py-2 text-text break-words">{log.description}</td>
                     </tr>
@@ -388,30 +424,6 @@ const Dashboard = () => {
             </div>
           </section>
         )}
-
-        <div className="rounded-2xl border border-border-muted bg-bg-light p-4">
-          <h2 className="text-sm font-semibold text-text uppercase tracking-wide mb-3">Quick Actions</h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <Button variant="primary" iconName="FaPlus" onClick={handleNewProduct}>
-              Add Product
-            </Button>
-            <Button variant="outline" iconName="FaPlus" onClick={handleAddCategory}>
-              Add Category
-            </Button>
-            <Button variant="outline" iconName="FaFileInvoice" onClick={() => navigate(PATHS.APP.PURCHASE_ORDERS)}>
-              Purchase Order
-            </Button>
-            <Button variant="outline" iconName="FaArrowDownLong" onClick={() => navigate(PATHS.APP.STOCK_IN)}>
-              Stock In
-            </Button>
-            <Button variant="outline" iconName="FaArrowUpLong" onClick={() => navigate(PATHS.APP.STOCK_OUT)}>
-              Stock Out
-            </Button>
-            <Button variant="outline" iconName="FaUsers" onClick={() => navigate(PATHS.APP.USERS)}>
-              Manage Users
-            </Button>
-          </div>
-        </div>
 
         <div className="rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-clip w-full max-w-full min-w-0">
           <h2 className="text-sm font-semibold text-text uppercase tracking-wide mb-3">Recently Added Products</h2>
@@ -454,6 +466,7 @@ const Dashboard = () => {
       content={
         <>
           {body}
+
           <Modal
             isOpen={isNewProductModalOpen}
             onClose={closeNewProductModal}
@@ -481,14 +494,81 @@ const Dashboard = () => {
                 value={productForm.productName}
                 onChange={(e) => setProductForm((prev) => ({ ...prev, productName: e.target.value }))}
               />
-              <Select
-                fullWidth
-                required
-                label="Category"
-                value={productForm.category}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, category: e.target.value }))}
-                options={[{ value: "", label: "Select category" }, ...categories.map((cat) => ({ value: cat.name, label: cat.name }))]}
-              />
+
+              <div className="md:col-span-1">
+                <Select
+                  fullWidth
+                  required
+                  label="Category"
+                  value={productForm.category}
+                  onChange={(e) => setProductForm((prev) => ({ ...prev, category: e.target.value }))}
+                  options={[
+                    { value: "", label: "Select category" },
+                    ...categories.map((cat) => ({ value: cat.name, label: cat.name })),
+                  ]}
+                />
+
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <p className="text-xs text-text-muted">Need a new category?</p>
+                  {!isAddingCategoryInline ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      iconName="FaPlus"
+                      onClick={handleShowCategoryInlineForm}
+                    />
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconName="FaXmark"
+                      onClick={handleCancelCategoryInlineForm}
+                    />
+                  )}
+                </div>
+              </div>
+
+              {isAddingCategoryInline && (
+                <div className="md:col-span-2 rounded-2xl border border-border-muted bg-bg-main p-4 space-y-4">
+                  <div>
+                    <p className="text-sm font-semibold text-text">Add New Category</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <InputField
+                      fullWidth
+                      required
+                      label="Category Name"
+                      placeholder="Beverages"
+                      value={categoryForm.name}
+                      onChange={(e) => setCategoryForm((prev) => ({ ...prev, name: e.target.value }))}
+                    />
+                    <TextArea
+                      fullWidth
+                      label="Description"
+                      placeholder="Optional category description."
+                      value={categoryForm.description}
+                      onChange={(e) => setCategoryForm((prev) => ({ ...prev, description: e.target.value }))}
+                    />
+
+                    <div className="md:col-span-2 flex items-center justify-end gap-2">
+                      <Button variant="secondary" onClick={handleCancelCategoryInlineForm}>
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="primary"
+                        iconName="FaFloppyDisk"
+                        onClick={handleSaveCategoryInline}
+                        isLoading={isSavingCategory}
+                        loadingText="Saving"
+                      >
+                        Save Category
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <InputField
                 fullWidth
                 required
@@ -500,6 +580,7 @@ const Dashboard = () => {
                 value={productForm.unitPrice}
                 onChange={(e) => setProductForm((prev) => ({ ...prev, unitPrice: e.target.value }))}
               />
+
               <InputField
                 fullWidth
                 required
@@ -511,6 +592,7 @@ const Dashboard = () => {
                 value={productForm.stockQty}
                 onChange={(e) => setProductForm((prev) => ({ ...prev, stockQty: e.target.value }))}
               />
+
               <InputField
                 fullWidth
                 required
@@ -522,6 +604,7 @@ const Dashboard = () => {
                 value={productForm.reorderLevel}
                 onChange={(e) => setProductForm((prev) => ({ ...prev, reorderLevel: e.target.value }))}
               />
+
               <div className="md:col-span-2">
                 <TextArea
                   fullWidth
@@ -533,46 +616,12 @@ const Dashboard = () => {
               </div>
             </div>
           </Modal>
-
-          <Modal
-            isOpen={isAddCategoryModalOpen}
-            onClose={closeCategoryModal}
-            title="Add Category"
-            primaryAction={{
-              label: "Save Category",
-              iconName: "FaFloppyDisk",
-              onClick: handleSaveCategory,
-              isLoading: isSavingCategory,
-              loadingText: "Saving",
-            }}
-            secondaryAction={{
-              label: "Cancel",
-              variant: "secondary",
-              onClick: closeCategoryModal,
-            }}
-          >
-            <div className="space-y-4">
-              <InputField
-                fullWidth
-                required
-                label="Category Name"
-                placeholder="Beverages"
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-              />
-              <TextArea
-                fullWidth
-                label="Description"
-                placeholder="Optional category description."
-                value={newCategoryDesc}
-                onChange={(e) => setNewCategoryDesc(e.target.value)}
-              />
-            </div>
-          </Modal>
         </>
       }
     />
   );
+
+  return <MainLayout content={body} />;
 };
 
 export default Dashboard;

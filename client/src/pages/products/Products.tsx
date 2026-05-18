@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { AxiosError } from "axios";
 import MainLayout from "../../components/layouts/MainLayout";
 import { Button, LoadingSpinner, Modal } from "../../components/ui";
-import { InputField, TextArea } from "../../components/ui/forms";
+import { InputField, Select, TextArea } from "../../components/ui/forms";
+import CategoryService, { type Category } from "../../services/CategoryService";
 import ProductService from "../../services/ProductService";
 import { useDebounce } from "../../hooks";
 import { notify } from "../../util/notify";
@@ -36,7 +37,14 @@ type EditProductFormState = {
   notes: string;
 };
 
+type CategoryFormState = {
+  name: string;
+  description: string;
+};
+
 const emptyMeta: ListMeta = { current_page: 1, last_page: 1, per_page: 15, total: 0 };
+
+const emptyCategoryForm: CategoryFormState = { name: "", description: "" };
 
 const Products = () => {
   const [rows, setRows] = useState<ProductRow[]>([]);
@@ -61,6 +69,30 @@ const Products = () => {
     reorder_level: "",
     notes: "",
   });
+
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [isSavingCategory, setIsSavingCategory] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [categoryForm, setCategoryForm] = useState<CategoryFormState>(emptyCategoryForm);
+
+  const loadCategories = async () => {
+    setCategoriesLoading(true);
+    try {
+      const res = await CategoryService.getAll();
+      setCategories(Array.isArray(res?.data) ? res.data : []);
+    } catch {
+      notify.error("Unable to load categories.");
+      setCategories([]);
+    } finally {
+      setCategoriesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadCategories();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -181,6 +213,75 @@ const Products = () => {
       notify.error(axiosError.response?.data?.message || "Unable to update product.");
     } finally {
       setIsSavingEdit(false);
+    }
+  };
+
+  const openCreateCategoryModal = () => {
+    setEditingCategory(null);
+    setCategoryForm(emptyCategoryForm);
+    setIsCategoryModalOpen(true);
+  };
+
+  const openEditCategoryModal = (category: Category) => {
+    setEditingCategory(category);
+    setCategoryForm({
+      name: category.name,
+      description: category.description ?? "",
+    });
+    setIsCategoryModalOpen(true);
+  };
+
+  const closeCategoryModal = () => {
+    if (isSavingCategory) return;
+    setIsCategoryModalOpen(false);
+    setEditingCategory(null);
+    setCategoryForm(emptyCategoryForm);
+  };
+
+  const handleSaveCategory = async () => {
+    const name = categoryForm.name.trim();
+    if (!name) {
+      notify.warning("Category name is required.");
+      return;
+    }
+
+    setIsSavingCategory(true);
+    try {
+      if (editingCategory) {
+        await CategoryService.update(editingCategory.id, {
+          name,
+          description: categoryForm.description.trim() || undefined,
+        });
+        notify.success(`Category "${name}" updated.`);
+      } else {
+        await CategoryService.create({
+          name,
+          description: categoryForm.description.trim() || undefined,
+        });
+        notify.success(`Category "${name}" created.`);
+      }
+      setIsCategoryModalOpen(false);
+      setEditingCategory(null);
+      setCategoryForm(emptyCategoryForm);
+      await loadCategories();
+    } catch (error) {
+      const axiosError = error as AxiosError<{ message?: string }>;
+      notify.error(axiosError.response?.data?.message || "Unable to save category.");
+    } finally {
+      setIsSavingCategory(false);
+    }
+  };
+
+  const handleDeleteCategory = async (id: number, name: string) => {
+    if (!window.confirm(`Delete category "${name}"? Products using it may need reassignment.`)) return;
+
+    try {
+      await CategoryService.delete(id);
+      notify.success("Category deleted.");
+      await loadCategories();
+    } catch (error) {
+      const err = error as AxiosError<{ message?: string }>;
+      notify.error(err.response?.data?.message || "Unable to delete category.");
     }
   };
 
@@ -330,6 +431,104 @@ const Products = () => {
         )}
       </div>
 
+      <div className="rounded-2xl border border-border-muted bg-bg-light p-4 shadow-sm">
+        <motionlessCategoriesHeader onAdd={openCreateCategoryModal} />
+
+        <PageShell
+          isInitialLoading={categoriesLoading}
+          isFetching={false}
+          skeleton={
+            <motionlessCategoriesSkeleton />
+          }
+        >
+          <div className="w-full overflow-hidden">
+            <table className="w-full text-sm table-auto">
+              <thead className="text-text-muted">
+                <tr className="border-b border-border-muted">
+                  <th className="text-left py-2 px-2">Name</th>
+                  <th className="text-left py-2 px-2">Description</th>
+                  <th className="text-right py-2 px-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {categories.map((category) => (
+                  <tr key={category.id} className="border-b border-border-muted/40 last:border-b-0">
+                    <td className="py-2 px-2 font-medium text-text">{category.name}</td>
+                    <td className="py-2 px-2 text-text-muted">{category.description || "—"}</td>
+                    <td className="py-2 px-2 text-right">
+                      <div className="flex flex-wrap gap-1 justify-end">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          iconName="FaPen"
+                          tooltip="Edit category"
+                          tooltipPosition="top"
+                          onClick={() => openEditCategoryModal(category)}
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          iconName="FaTrash"
+                          tooltip="Delete category"
+                          tooltipPosition="top"
+                          className="text-danger border-danger hover:bg-danger hover:text-bg-dark"
+                          onClick={() => void handleDeleteCategory(category.id, category.name)}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+
+                {categories.length === 0 && !categoriesLoading && (
+                  <tr>
+                    <td colSpan={3} className="py-8 text-center text-text-muted">
+                      No categories yet. Add one to organize products.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </PageShell>
+      </div>
+
+      <Modal
+        isOpen={isCategoryModalOpen}
+        onClose={closeCategoryModal}
+        title={editingCategory ? "Edit Category" : "New Category"}
+        size="md"
+        primaryAction={{
+          label: editingCategory ? "Save Changes" : "Create Category",
+          iconName: "FaFloppyDisk",
+          onClick: handleSaveCategory,
+          isLoading: isSavingCategory,
+          loadingText: "Saving",
+        }}
+        secondaryAction={{
+          label: "Cancel",
+          variant: "secondary",
+          onClick: closeCategoryModal,
+        }}
+      >
+        <div className="space-y-4">
+          <InputField
+            fullWidth
+            required
+            label="Category Name"
+            placeholder="Beverages"
+            value={categoryForm.name}
+            onChange={(e) => setCategoryForm((prev) => ({ ...prev, name: e.target.value }))}
+          />
+          <TextArea
+            fullWidth
+            label="Description"
+            placeholder="Optional description"
+            value={categoryForm.description}
+            onChange={(e) => setCategoryForm((prev) => ({ ...prev, description: e.target.value }))}
+          />
+        </div>
+      </Modal>
+
       <Modal
         isOpen={isEditModalOpen}
         onClose={closeEditModal}
@@ -358,13 +557,16 @@ const Products = () => {
             onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
           />
 
-          <InputField
+          <Select
             fullWidth
             required
             label="Category"
-            placeholder="Canned Goods"
             value={editForm.category}
             onChange={(e) => setEditForm((prev) => ({ ...prev, category: e.target.value }))}
+            options={[
+              { value: "", label: "Select category" },
+              ...categories.map((cat) => ({ value: cat.name, label: cat.name })),
+            ]}
           />
 
           <InputField
@@ -416,5 +618,27 @@ const Products = () => {
 
   return <MainLayout content={content} />;
 };
+
+function motionlessCategoriesHeader({ onAdd }: { onAdd: () => void }) {
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+      <div>
+        <h2 className="text-lg font-bold text-text">Categories</h2>
+        <p className="text-sm text-text-muted">Create, edit, and delete product categories.</p>
+      </div>
+      <Button variant="primary" iconName="FaPlus" onClick={onAdd}>
+        Add Category
+      </Button>
+    </div>
+  );
+}
+
+function motionlessCategoriesSkeleton() {
+  return (
+    <div className="flex justify-center py-8">
+      <LoadingSpinner size="md" />
+    </div>
+  );
+}
 
 export default Products;

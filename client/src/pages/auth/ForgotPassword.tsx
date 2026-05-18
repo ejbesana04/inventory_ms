@@ -1,115 +1,53 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
-import type { AxiosError } from "axios";
 import { Button, Icon } from "../../components/ui";
-import { InputField } from "../../components/ui/forms";
 import { PATHS } from "../../routes/path";
-import AuthService from "../../services/AuthService";
-import { notify } from "../../util/notify";
 
 const ForgotPassword = () => {
-  const [email, setEmail] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [sent, setSent] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail) {
-      notify.warning("Enter your email address.");
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      await AuthService.requestPasswordReset(trimmedEmail);
-      setSent(true);
-      notify.success("Check your email for reset instructions.");
-    } catch (error) {
-      const axiosError = error as AxiosError<{ message?: string }>;
-      notify.error(
-        axiosError.response?.data?.message ||
-          (error instanceof Error ? error.message : "Unable to send reset link.")
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-bg-dark flex flex-col">
       <header className="w-full border-b border-border-muted bg-bg-light/95 backdrop-blur">
-        <motionlessHeader />
+        <MotionlessHeader />
       </header>
 
       <main className="grow flex items-center justify-center p-4 md:p-6">
         <div className="w-full max-w-md rounded-2xl border border-border-muted bg-bg-light p-6 md:p-8 shadow-sm">
-          <div className="mb-6">
-            <h1 className="text-2xl font-bold text-text">
-              {sent ? "Check your email" : "Forgot password"}
-            </h1>
-            <p className="text-sm text-text-muted mt-1">
-              {sent
-                ? "If an account exists for that address, we sent a link to reset your password."
-                : "Enter the email on your account and we will send reset instructions."}
+          <div className="mb-6 text-center">
+            <div className="mx-auto w-16 h-16 rounded-full bg-warning/15 flex items-center justify-center mb-4">
+              <Icon iconName="FaUserLock" className="text-warning text-2xl" />
+            </div>
+            <h1 className="text-2xl font-bold text-text">Cannot reset password online</h1>
+            <p className="text-sm text-text-muted mt-2">
+              For security reasons, password resets are handled by your organisation.
             </p>
           </div>
 
-          {sent ? (
-            <div className="space-y-4">
-              <p className="text-sm text-text-muted">
-                Did not receive it? Check spam or try again with the same email.
-              </p>
-              <Button variant="outline" fullWidth onClick={() => setSent(false)}>
-                Try another email
-              </Button>
-              <Link
-                to={PATHS.LOGIN}
-                className="block text-center text-sm font-semibold text-primary hover:underline"
-              >
-                Back to sign in
-              </Link>
+          <div className="space-y-5">
+            <div className="rounded-lg bg-info/10 p-4 text-sm">
+              <p className="font-semibold text-text mb-2">To reset your password:</p>
+              <ul className="list-disc list-inside text-text-muted space-y-1">
+                <li>Contact your system <strong>administrator</strong> or <strong>manager</strong></li>
+                <li>They will reset your password and provide temporary credentials</li>
+                <li>After logging in, you can change your password from your profile</li>
+              </ul>
             </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <InputField
-                fullWidth
-                label="Email"
-                type="email"
-                name="email"
-                autoComplete="email"
-                iconName="FaEnvelope"
-                placeholder="you@company.com"
-                value={email}
-                onChange={(ev) => setEmail(ev.target.value)}
-                disabled={isSubmitting}
-                required
-              />
-              <Button
-                type="submit"
-                variant="primary"
-                fullWidth
-                iconName="FaPaperPlane"
-                isLoading={isSubmitting}
-                loadingText="Sending"
-              >
-                Send reset link
-              </Button>
-              <Link
-                to={PATHS.LOGIN}
-                className="block text-center text-sm font-semibold text-primary hover:underline"
-              >
+
+            <Link to={PATHS.LOGIN}>
+              <Button variant="primary" fullWidth iconName="FaArrowLeft">
                 Back to sign in
-              </Link>
-            </form>
-          )}
+              </Button>
+            </Link>
+
+            <p className="text-center text-xs text-text-muted">
+              If you are an administrator and need to reset a user's password, please use the <strong>Users</strong> section inside the application.
+            </p>
+          </div>
         </div>
       </main>
     </div>
   );
 };
 
-function motionlessHeader() {
+const MotionlessHeader = () => {
   return (
     <div className="mx-auto max-w-7xl px-4 py-4">
       <Link to={PATHS.LOGIN} className="inline-flex gap-3 items-center">
@@ -123,6 +61,6 @@ function motionlessHeader() {
       </Link>
     </div>
   );
-}
+};
 
 export default ForgotPassword;

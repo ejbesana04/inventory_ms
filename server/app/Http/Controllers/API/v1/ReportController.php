@@ -13,6 +13,8 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -38,9 +40,51 @@ class ReportController extends Controller
     }
 
     /**
-     * @return array<string, mixed>
+     * NEW: AI Daily Summary endpoint
+     * Calls n8n webhook with report data and returns AI-generated summary.
      */
-    protected function summaryPayload(Request $request): array
+    public function aiSummary(Request $request): JsonResponse
+    {
+        // 1. Build report data (reuses your existing logic)
+        $reportData = $this->buildSummaryData($request);
+
+        // 2. n8n webhook URL from config
+        $n8nUrl = config('services.n8n.webhook_url', 'http://localhost:5678/webhook/daily-summary');
+
+        try {
+            $response = Http::timeout(30)->post($n8nUrl, $reportData);
+
+            // 🔍 ADDED LOG: See what n8n returns
+            Log::info('n8n AI response', [
+                'status' => $response->status(),
+                'body' => $response->body()
+            ]);
+
+            if ($response->successful()) {
+                // Assume n8n returns JSON with at least a 'summary' field
+                $aiResponse = $response->json();
+                return $this->success([
+                    'summary' => $aiResponse['summary'] ?? $aiResponse,
+                ], 'AI summary generated successfully.');
+            }
+
+            Log::error('n8n AI summary error', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            return $this->error('AI service returned an error.', Response::HTTP_INTERNAL_SERVER_ERROR);
+        } catch (\Exception $e) {
+            Log::error('n8n AI summary call failed: ' . $e->getMessage());
+            return $this->error('Could not connect to AI service.', Response::HTTP_SERVICE_UNAVAILABLE);
+        }
+    }
+
+    /**
+     * Builds the summary data array (same structure as summaryPayload)
+     * Used by both summary() and aiSummary() to avoid duplication.
+     */
+    protected function buildSummaryData(Request $request): array
     {
         [$from, $to] = $this->range($request);
 
@@ -98,6 +142,14 @@ class ReportController extends Controller
             'low_stock_items' => $lowStockItems,
             'recent_sales' => $recentSales,
         ];
+    }
+
+    /**
+     * Original summaryPayload – now just calls buildSummaryData for backward compatibility.
+     */
+    protected function summaryPayload(Request $request): array
+    {
+        return $this->buildSummaryData($request);
     }
 
     public function inventorySummary(Request $request): JsonResponse

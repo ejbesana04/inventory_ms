@@ -84,6 +84,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('v1/reports/sales', [ReportController::class, 'sales']);
         Route::get('v1/reports/purchases', [ReportController::class, 'purchases']);
         Route::get('v1/reports/suppliers', [ReportController::class, 'suppliers']);
+        Route::post('v1/reports/ai-summary', [ReportController::class, 'aiSummary']);
     });
 
     Route::middleware('permission:users.manage')->group(function () {

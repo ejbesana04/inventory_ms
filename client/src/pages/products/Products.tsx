@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import type { AxiosError } from "axios";
 import MainLayout from "../../components/layouts/MainLayout";
 import { Button, LoadingSpinner, Modal } from "../../components/ui";
@@ -42,22 +42,35 @@ type CategoryFormState = {
   description: string;
 };
 
-const emptyMeta: ListMeta = { current_page: 1, last_page: 1, per_page: 15, total: 0 };
-
+const emptyMeta: ListMeta = { current_page: 1, last_page: 1, per_page: 10, total: 0 };
 const emptyCategoryForm: CategoryFormState = { name: "", description: "" };
 
 const Products = () => {
+  // ========== PRODUCTS (server pagination) ==========
   const [rows, setRows] = useState<ProductRow[]>([]);
   const [meta, setMeta] = useState<ListMeta>(emptyMeta);
   const [search, setSearch] = useState("");
-  const debounced = useDebounce(search, 350);
+  const debouncedSearch = useDebounce(search, 350);
   const [page, setPage] = useState(1);
   const [refreshKey, setRefreshKey] = useState(0);
-
   const [loading, setLoading] = useState(true);
   const [isRefetching, setIsRefetching] = useState(false);
   const finishedInitialRequest = useRef(false);
 
+  // ========== CATEGORIES (client pagination + search) ==========
+  const [allCategories, setAllCategories] = useState<Category[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [categorySearch, setCategorySearch] = useState("");
+  const [categoryPage, setCategoryPage] = useState(1);
+  const categoriesPerPage = 10;
+
+  // Category modal state
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [isSavingCategory, setIsSavingCategory] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [categoryForm, setCategoryForm] = useState<CategoryFormState>(emptyCategoryForm);
+
+  // Product edit modal
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductRow | null>(null);
@@ -70,30 +83,44 @@ const Products = () => {
     notes: "",
   });
 
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [categoriesLoading, setCategoriesLoading] = useState(true);
-  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
-  const [isSavingCategory, setIsSavingCategory] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [categoryForm, setCategoryForm] = useState<CategoryFormState>(emptyCategoryForm);
-
-  const loadCategories = async () => {
+  // ---------- Load categories (all at once) ----------
+  const loadAllCategories = async () => {
     setCategoriesLoading(true);
     try {
       const res = await CategoryService.getAll();
-      setCategories(Array.isArray(res?.data) ? res.data : []);
+      setAllCategories(Array.isArray(res?.data) ? res.data : []);
     } catch {
       notify.error("Unable to load categories.");
-      setCategories([]);
+      setAllCategories([]);
     } finally {
       setCategoriesLoading(false);
     }
   };
 
   useEffect(() => {
-    void loadCategories();
+    void loadAllCategories();
   }, []);
 
+  // Client‑side filtering + pagination for categories
+  const filteredCategories = useMemo(() => {
+    if (!categorySearch.trim()) return allCategories;
+    const term = categorySearch.trim().toLowerCase();
+    return allCategories.filter((cat) => cat.name.toLowerCase().includes(term));
+  }, [allCategories, categorySearch]);
+
+  const totalFiltered = filteredCategories.length;
+  const totalCategoryPages = Math.ceil(totalFiltered / categoriesPerPage);
+  const paginatedCategories = useMemo(() => {
+    const start = (categoryPage - 1) * categoriesPerPage;
+    return filteredCategories.slice(start, start + categoriesPerPage);
+  }, [filteredCategories, categoryPage]);
+
+  // Reset category page when search changes
+  useEffect(() => {
+    setCategoryPage(1);
+  }, [categorySearch]);
+
+  // ---------- Products loading (server side) ----------
   useEffect(() => {
     let cancelled = false;
     const isFirstLoad = !finishedInitialRequest.current;
@@ -104,9 +131,9 @@ const Products = () => {
 
       try {
         const res = (await ProductService.list({
-          search: debounced.trim() || undefined,
+          search: debouncedSearch.trim() || undefined,
           page,
-          per_page: 15,
+          per_page: 10,
           sort: "created_at",
           direction: "desc",
         })) as {
@@ -118,12 +145,12 @@ const Products = () => {
         const payload = res?.data;
         const nextRows = Array.isArray(payload?.items) ? payload.items : [];
         setRows(nextRows);
-        setMeta(payload?.meta ?? emptyMeta);
+        setMeta(payload?.meta ?? { ...emptyMeta, per_page: 10 });
       } catch {
         if (!cancelled) {
           notify.error("Unable to load products.");
           setRows([]);
-          setMeta(emptyMeta);
+          setMeta({ ...emptyMeta, per_page: 10 });
         }
       } finally {
         if (!cancelled) {
@@ -139,7 +166,95 @@ const Products = () => {
     return () => {
       cancelled = true;
     };
-  }, [page, debounced, refreshKey]);
+  }, [page, debouncedSearch, refreshKey]);
+
+  // ---------- Category CRUD helpers ----------
+  const refreshCategories = () => {
+    void loadAllCategories();
+  };
+
+  const openCreateCategoryModal = () => {
+    setEditingCategory(null);
+    setCategoryForm(emptyCategoryForm);
+    setIsCategoryModalOpen(true);
+  };
+
+  const openEditCategoryModal = (category: Category) => {
+    setEditingCategory(category);
+    setCategoryForm({
+      name: category.name,
+      description: category.description ?? "",
+    });
+    setIsCategoryModalOpen(true);
+  };
+
+  const closeCategoryModal = () => {
+    if (isSavingCategory) return;
+    setIsCategoryModalOpen(false);
+    setEditingCategory(null);
+    setCategoryForm(emptyCategoryForm);
+  };
+
+  const handleSaveCategory = async () => {
+    const name = categoryForm.name.trim();
+    if (!name) {
+      notify.warning("Category name is required.");
+      return;
+    }
+
+    setIsSavingCategory(true);
+    try {
+      if (editingCategory) {
+        await CategoryService.update(editingCategory.id, {
+          name,
+          description: categoryForm.description.trim() || undefined,
+        });
+        notify.success(`Category "${name}" updated.`);
+      } else {
+        await CategoryService.create({
+          name,
+          description: categoryForm.description.trim() || undefined,
+        });
+        notify.success(`Category "${name}" created.`);
+      }
+      setIsCategoryModalOpen(false);
+      setEditingCategory(null);
+      setCategoryForm(emptyCategoryForm);
+      await refreshCategories();
+    } catch (error) {
+      const axiosError = error as AxiosError<{ message?: string }>;
+      notify.error(axiosError.response?.data?.message || "Unable to save category.");
+    } finally {
+      setIsSavingCategory(false);
+    }
+  };
+
+  const handleDeleteCategory = async (id: number, name: string) => {
+    if (!window.confirm(`Delete category "${name}"? Products using it may need reassignment.`)) return;
+
+    try {
+      await CategoryService.delete(id);
+      notify.success("Category deleted.");
+      await refreshCategories();
+    } catch (error) {
+      const err = error as AxiosError<{ message?: string }>;
+      notify.error(err.response?.data?.message || "Unable to delete category.");
+    }
+  };
+
+  // ---------- Product CRUD ----------
+  const handleDelete = async (id: number, name: string) => {
+    if (!window.confirm(`Permanently delete "${name}"? This action cannot be undone.`)) return;
+
+    try {
+      await ProductService.permanentDelete(id);
+      notify.success("Product permanently deleted.");
+      setRefreshKey((k) => k + 1);
+    } catch (error) {
+      const err = error as AxiosError<{ message?: string }>;
+      notify.error(err.response?.data?.message || "Delete failed.");
+    }
+  };
 
   const openEditModal = (product: ProductRow) => {
     setEditingProduct(product);
@@ -207,7 +322,7 @@ const Products = () => {
       notify.success(`Product "${editForm.name}" updated.`);
       setIsEditModalOpen(false);
       setEditingProduct(null);
-      await Promise.all([setRefreshKey((k) => k + 1)]);
+      setRefreshKey((k) => k + 1);
     } catch (error) {
       const axiosError = error as AxiosError<{ message?: string }>;
       notify.error(axiosError.response?.data?.message || "Unable to update product.");
@@ -216,90 +331,10 @@ const Products = () => {
     }
   };
 
-  const openCreateCategoryModal = () => {
-    setEditingCategory(null);
-    setCategoryForm(emptyCategoryForm);
-    setIsCategoryModalOpen(true);
-  };
-
-  const openEditCategoryModal = (category: Category) => {
-    setEditingCategory(category);
-    setCategoryForm({
-      name: category.name,
-      description: category.description ?? "",
-    });
-    setIsCategoryModalOpen(true);
-  };
-
-  const closeCategoryModal = () => {
-    if (isSavingCategory) return;
-    setIsCategoryModalOpen(false);
-    setEditingCategory(null);
-    setCategoryForm(emptyCategoryForm);
-  };
-
-  const handleSaveCategory = async () => {
-    const name = categoryForm.name.trim();
-    if (!name) {
-      notify.warning("Category name is required.");
-      return;
-    }
-
-    setIsSavingCategory(true);
-    try {
-      if (editingCategory) {
-        await CategoryService.update(editingCategory.id, {
-          name,
-          description: categoryForm.description.trim() || undefined,
-        });
-        notify.success(`Category "${name}" updated.`);
-      } else {
-        await CategoryService.create({
-          name,
-          description: categoryForm.description.trim() || undefined,
-        });
-        notify.success(`Category "${name}" created.`);
-      }
-      setIsCategoryModalOpen(false);
-      setEditingCategory(null);
-      setCategoryForm(emptyCategoryForm);
-      await loadCategories();
-    } catch (error) {
-      const axiosError = error as AxiosError<{ message?: string }>;
-      notify.error(axiosError.response?.data?.message || "Unable to save category.");
-    } finally {
-      setIsSavingCategory(false);
-    }
-  };
-
-  const handleDeleteCategory = async (id: number, name: string) => {
-    if (!window.confirm(`Delete category "${name}"? Products using it may need reassignment.`)) return;
-
-    try {
-      await CategoryService.delete(id);
-      notify.success("Category deleted.");
-      await loadCategories();
-    } catch (error) {
-      const err = error as AxiosError<{ message?: string }>;
-      notify.error(err.response?.data?.message || "Unable to delete category.");
-    }
-  };
-
-  const handleDelete = async (id: number, name: string) => {
-    if (!window.confirm(`Permanently delete "${name}"? This action cannot be undone.`)) return;
-
-    try {
-      await ProductService.permanentDelete(id);
-      notify.success("Product permanently deleted.");
-      setRefreshKey((k) => k + 1);
-    } catch (error) {
-      const err = error as AxiosError<{ message?: string }>;
-      notify.error(err.response?.data?.message || "Delete failed.");
-    }
-  };
-
+  // ========== JSX ==========
   const content = (
     <div className="space-y-6 pb-8">
+      {/* Page header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-text">Products</h1>
@@ -307,12 +342,13 @@ const Products = () => {
         </div>
       </div>
 
+      {/* Products container */}
       <div className="rounded-2xl border border-border-muted bg-bg-light p-4 shadow-sm">
         <div className="flex flex-col sm:flex-row gap-3 sm:items-end sm:justify-between mb-4">
           <div className="flex-1 max-w-md">
             <InputField
               fullWidth
-              label="Search"
+              label="Search products"
               iconName="FaMagnifyingGlass"
               placeholder="SKU, name, or barcode"
               value={search}
@@ -322,10 +358,6 @@ const Products = () => {
               }}
             />
           </div>
-
-          <Button variant="outline" iconName="FaArrowRotateRight" onClick={() => setRefreshKey((k) => k + 1)}>
-            Refresh
-          </Button>
         </div>
 
         <PageShell
@@ -367,7 +399,6 @@ const Products = () => {
                         <span className="text-xs px-2 py-1 rounded-full bg-success/15 text-success font-bold">OK</span>
                       )}
                     </td>
-
                     <td className="py-2 px-2 text-right">
                       <div className="flex flex-wrap gap-1 justify-end">
                         <Button
@@ -431,67 +462,119 @@ const Products = () => {
         )}
       </div>
 
-      <div className="rounded-2xl border border-border-muted bg-bg-light p-4 shadow-sm">
-        <motionlessCategoriesHeader onAdd={openCreateCategoryModal} />
+      {/* Categories section - heading and description outside container */}
+      <div>
+        <h2 className="text-xl font-bold text-text">Categories</h2>
+        <p className="text-sm text-text-muted">Create, edit, and delete product categories.</p>
 
-        <PageShell
-          isInitialLoading={categoriesLoading}
-          isFetching={false}
-          skeleton={
-            <motionlessCategoriesSkeleton />
-          }
-        >
-          <div className="w-full overflow-hidden">
-            <table className="w-full text-sm table-auto">
-              <thead className="text-text-muted">
-                <tr className="border-b border-border-muted">
-                  <th className="text-left py-2 px-2">Name</th>
-                  <th className="text-left py-2 px-2">Description</th>
-                  <th className="text-right py-2 px-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {categories.map((category) => (
-                  <tr key={category.id} className="border-b border-border-muted/40 last:border-b-0">
-                    <td className="py-2 px-2 font-medium text-text">{category.name}</td>
-                    <td className="py-2 px-2 text-text-muted">{category.description || "—"}</td>
-                    <td className="py-2 px-2 text-right">
-                      <div className="flex flex-wrap gap-1 justify-end">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          iconName="FaPen"
-                          tooltip="Edit category"
-                          tooltipPosition="top"
-                          onClick={() => openEditCategoryModal(category)}
-                        />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          iconName="FaTrash"
-                          tooltip="Delete category"
-                          tooltipPosition="top"
-                          className="text-danger border-danger hover:bg-danger hover:text-bg-dark"
-                          onClick={() => void handleDeleteCategory(category.id, category.name)}
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-
-                {categories.length === 0 && !categoriesLoading && (
-                  <tr>
-                    <td colSpan={3} className="py-8 text-center text-text-muted">
-                      No categories yet. Add one to organize products.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+        {/* Categories container with Add Category button inside */}
+        <div className="rounded-2xl border border-border-muted bg-bg-light p-4 shadow-sm mt-3">
+          {/* Search + Add Category button row */}
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-end sm:justify-between mb-4">
+            <div className="flex-1 max-w-md">
+              <InputField
+                fullWidth
+                label="Search categories"
+                iconName="FaMagnifyingGlass"
+                placeholder="Category name"
+                value={categorySearch}
+                onChange={(e) => setCategorySearch(e.target.value)}
+              />
+            </div>
+            <Button variant="primary" iconName="FaPlus" onClick={openCreateCategoryModal}>
+              Add Category
+            </Button>
           </div>
-        </PageShell>
+
+          <PageShell
+            isInitialLoading={categoriesLoading}
+            isFetching={false}
+            skeleton={
+              <div className="flex justify-center py-8">
+                <LoadingSpinner size="md" />
+              </div>
+            }
+          >
+            <div className="w-full overflow-hidden">
+              <table className="w-full text-sm table-auto">
+                <thead className="text-text-muted">
+                  <tr className="border-b border-border-muted">
+                    <th className="text-left py-2 px-2">Name</th>
+                    <th className="text-left py-2 px-2">Description</th>
+                    <th className="text-right py-2 px-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedCategories.map((category) => (
+                    <tr key={category.id} className="border-b border-border-muted/40 last:border-b-0">
+                      <td className="py-2 px-2 font-medium text-text">{category.name}</td>
+                      <td className="py-2 px-2 text-text-muted">{category.description || "—"}</td>
+                      <td className="py-2 px-2 text-right">
+                        <div className="flex flex-wrap gap-1 justify-end">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            iconName="FaPen"
+                            tooltip="Edit category"
+                            tooltipPosition="top"
+                            onClick={() => openEditCategoryModal(category)}
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            iconName="FaTrash"
+                            tooltip="Delete category"
+                            tooltipPosition="top"
+                            className="text-danger border-danger hover:bg-danger hover:text-bg-dark"
+                            onClick={() => void handleDeleteCategory(category.id, category.name)}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {paginatedCategories.length === 0 && !categoriesLoading && (
+                    <tr>
+                      <td colSpan={3} className="py-8 text-center text-text-muted">
+                        {categorySearch ? "No matching categories found." : "No categories yet. Add one to organize products."}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </PageShell>
+
+          {/* Categories pagination (client side) */}
+          {totalCategoryPages > 1 && (
+            <div className="flex items-center justify-between mt-4 text-sm text-text-muted">
+              <span>
+                Page {categoryPage} of {totalCategoryPages} ({totalFiltered} items)
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={categoryPage <= 1}
+                  onClick={() => setCategoryPage((p) => p - 1)}
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={categoryPage >= totalCategoryPages}
+                  onClick={() => setCategoryPage((p) => p + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
+      {/* Category Modal */}
       <Modal
         isOpen={isCategoryModalOpen}
         onClose={closeCategoryModal}
@@ -529,6 +612,7 @@ const Products = () => {
         </div>
       </Modal>
 
+      {/* Product Edit Modal */}
       <Modal
         isOpen={isEditModalOpen}
         onClose={closeEditModal}
@@ -556,7 +640,6 @@ const Products = () => {
             value={editForm.name}
             onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
           />
-
           <Select
             fullWidth
             required
@@ -565,10 +648,9 @@ const Products = () => {
             onChange={(e) => setEditForm((prev) => ({ ...prev, category: e.target.value }))}
             options={[
               { value: "", label: "Select category" },
-              ...categories.map((cat) => ({ value: cat.name, label: cat.name })),
+              ...allCategories.map((cat) => ({ value: cat.name, label: cat.name })),
             ]}
           />
-
           <InputField
             fullWidth
             required
@@ -577,7 +659,6 @@ const Products = () => {
             value={editForm.sku}
             onChange={(e) => setEditForm((prev) => ({ ...prev, sku: e.target.value }))}
           />
-
           <InputField
             fullWidth
             required
@@ -589,7 +670,6 @@ const Products = () => {
             value={editForm.selling_price}
             onChange={(e) => setEditForm((prev) => ({ ...prev, selling_price: e.target.value }))}
           />
-
           <InputField
             fullWidth
             required
@@ -601,7 +681,6 @@ const Products = () => {
             value={editForm.reorder_level}
             onChange={(e) => setEditForm((prev) => ({ ...prev, reorder_level: e.target.value }))}
           />
-
           <div className="md:col-span-2">
             <TextArea
               fullWidth
@@ -618,27 +697,5 @@ const Products = () => {
 
   return <MainLayout content={content} />;
 };
-
-function motionlessCategoriesHeader({ onAdd }: { onAdd: () => void }) {
-  return (
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-      <div>
-        <h2 className="text-lg font-bold text-text">Categories</h2>
-        <p className="text-sm text-text-muted">Create, edit, and delete product categories.</p>
-      </div>
-      <Button variant="primary" iconName="FaPlus" onClick={onAdd}>
-        Add Category
-      </Button>
-    </div>
-  );
-}
-
-function motionlessCategoriesSkeleton() {
-  return (
-    <div className="flex justify-center py-8">
-      <LoadingSpinner size="md" />
-    </div>
-  );
-}
 
 export default Products;

@@ -68,15 +68,15 @@ const ProductService = {
   /**
    * Fetches all pages so pickers/dropdowns are not cut off by pagination.
    */
-  getAll: async () => {
+  getAll: async <TItem = Record<string, unknown>>() => {
     const perPage = 100;
     let currentPage = 1;
     let lastPage = 1;
-    const allItems: Record<string, unknown>[] = [];
+    const allItems: TItem[] = [];
 
     while (currentPage <= lastPage) {
       const response = (await handleRequest(
-        AxiosInstance.get<ProductListEnvelope>(PRODUCT_PREFIX, {
+        AxiosInstance.get<ProductListEnvelope<TItem>>(PRODUCT_PREFIX, {
           params: {
             page: currentPage,
             per_page: perPage,
@@ -85,7 +85,7 @@ const ProductService = {
           },
         }),
         "Failed to fetch products"
-      )) as ProductListEnvelope;
+      )) as ProductListEnvelope<TItem>;
 
       const payload = response.data;
       allItems.push(...(payload?.items ?? []));
@@ -107,7 +107,7 @@ const ProductService = {
           total: allItems.length,
         },
       },
-    } as ProductListEnvelope;
+    } as ProductListEnvelope<TItem>;
   },
 
   create: (data: ProductPayload) =>

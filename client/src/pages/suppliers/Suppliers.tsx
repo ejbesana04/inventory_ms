@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import type { AxiosError } from "axios";
 import MainLayout from "../../components/layouts/MainLayout";
-import { Button, Modal } from "../../components/ui";
+import { Button, Modal, LoadingSpinner } from "../../components/ui";
 import { InputField, TextArea } from "../../components/ui/forms";
+import { PageShell } from "../../components/page/PageShell";
 import SupplierService, { type Supplier } from "../../services/SupplierService";
 import { notify } from "../../util/notify";
 
@@ -16,30 +17,70 @@ const emptyForm = {
 };
 
 const Suppliers = () => {
-  const [rows, setRows] = useState<Supplier[]>([]);
+  // All suppliers (loaded once)
+  const [allSuppliers, setAllSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refetching, setRefetching] = useState(false);
+
+  // Client‑side pagination state
+  const [supplierSearch, setSupplierSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const suppliersPerPage = 10;
+
+  // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
 
-  const load = async () => {
+  const finishedInitialRequest = useRef(false);
+
+  // Load all suppliers once
+  const loadAllSuppliers = async () => {
     setLoading(true);
     try {
       const res = (await SupplierService.getAll()) as { data?: Supplier[] };
-      const list = res?.data;
-      setRows(Array.isArray(list) ? list : []);
+      setAllSuppliers(Array.isArray(res?.data) ? res.data : []);
     } catch {
       notify.error("Unable to load suppliers.");
-      setRows([]);
+      setAllSuppliers([]);
     } finally {
       setLoading(false);
+      finishedInitialRequest.current = true;
     }
   };
 
   useEffect(() => {
-    void load();
+    void loadAllSuppliers();
   }, []);
+
+  // Client‑side filtering
+  const filteredSuppliers = useMemo(() => {
+    if (!supplierSearch.trim()) return allSuppliers;
+    const term = supplierSearch.trim().toLowerCase();
+    return allSuppliers.filter((s) =>
+      s.name.toLowerCase().includes(term) ||
+      (s.contact_person?.toLowerCase().includes(term)) ||
+      (s.email?.toLowerCase().includes(term))
+    );
+  }, [allSuppliers, supplierSearch]);
+
+  const totalFiltered = filteredSuppliers.length;
+  const totalPages = Math.ceil(totalFiltered / suppliersPerPage);
+  const paginatedSuppliers = useMemo(() => {
+    const start = (page - 1) * suppliersPerPage;
+    return filteredSuppliers.slice(start, start + suppliersPerPage);
+  }, [filteredSuppliers, page]);
+
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setPage(1);
+  }, [supplierSearch]);
+
+  // CRUD helpers (no change from original, but after save/delete we reload all suppliers)
+  const refreshSuppliers = () => {
+    void loadAllSuppliers();
+  };
 
   const openCreate = () => {
     setEditingId(null);
@@ -89,7 +130,7 @@ const Suppliers = () => {
         notify.success("Supplier created.");
       }
       closeModal();
-      void load();
+      await refreshSuppliers();
     } catch (error) {
       const err = error as AxiosError<{ message?: string }>;
       notify.error(err.response?.data?.message || "Save failed.");
@@ -103,7 +144,7 @@ const Suppliers = () => {
     try {
       await SupplierService.delete(s.id);
       notify.success("Supplier removed.");
-      void load();
+      await refreshSuppliers();
     } catch (error) {
       const err = error as AxiosError<{ message?: string }>;
       notify.error(err.response?.data?.message || "Delete failed.");
@@ -123,9 +164,29 @@ const Suppliers = () => {
       </div>
 
       <div className="rounded-2xl border border-border-muted bg-bg-light p-4 shadow-sm overflow-x-hidden">
-        {loading ? (
-          <p className="text-sm text-text-muted py-8 text-center">Loading…</p>
-        ) : (
+        {/* Search input */}
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-end sm:justify-between mb-4">
+          <div className="flex-1 max-w-md">
+            <InputField
+              fullWidth
+              label="Search suppliers"
+              iconName="FaMagnifyingGlass"
+              placeholder="Name, contact, or email"
+              value={supplierSearch}
+              onChange={(e) => setSupplierSearch(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <PageShell
+          isInitialLoading={loading && !finishedInitialRequest.current}
+          isFetching={refetching}
+          skeleton={
+            <div className="flex justify-center py-12">
+              <LoadingSpinner size="md" />
+            </div>
+          }
+        >
           <div className="w-full overflow-x-hidden">
             <table className="w-full table-fixed text-sm">
               <thead className="text-text-muted">
@@ -140,7 +201,7 @@ const Suppliers = () => {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((s) => (
+                {paginatedSuppliers.map((s) => (
                   <tr key={s.id} className="border-b border-border-muted/40 last:border-b-0">
                     <td className="py-2 font-medium text-text break-words pr-2">{s.name}</td>
                     <td className="py-2 text-text break-words pr-2">{s.contact_person || "—"}</td>
@@ -172,17 +233,44 @@ const Suppliers = () => {
                     </td>
                   </tr>
                 ))}
-                {rows.length === 0 && (
+                {paginatedSuppliers.length === 0 && !loading && (
                   <tr>
                     <td colSpan={7} className="py-8 text-center text-text-muted">
-                      No suppliers yet.
+                      {supplierSearch ? "No matching suppliers found." : "No suppliers yet."}
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
+
+            {/* Pagination - same style as Products.tsx product table */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-4 text-sm text-text-muted">
+                <span>
+                  Page {page} of {totalPages} ({totalFiltered} items)
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
+        </PageShell>
       </div>
 
       <Modal

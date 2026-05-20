@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import type { AxiosError } from "axios";
 import MainLayout from "../../components/layouts/MainLayout";
-import { Button, Modal } from "../../components/ui";
+import { Button, Modal, LoadingSpinner } from "../../components/ui";
 import { InputField, Select } from "../../components/ui/forms";
+import { PageShell } from "../../components/page/PageShell";
 import SaleService, { type CreateSalePayload } from "../../services/SaleService";
 import ProductService from "../../services/ProductService";
 import { parseLaravelPage } from "../../util/parseLaravelPage";
@@ -30,10 +31,17 @@ const paymentOptions: { value: CreateSalePayload["payment_method"]; label: strin
 ];
 
 const Sales = () => {
-  const [rows, setRows] = useState<SaleRow[]>([]);
-  const [meta, setMeta] = useState({ current_page: 1, last_page: 1, per_page: 20, total: 0 });
-  const [page, setPage] = useState(1);
+  // All sales (loaded once)
+  const [allRows, setAllRows] = useState<SaleRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refetching, setRefetching] = useState(false);
+
+  // Client‑side pagination & search
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const rowsPerPage = 20;
+
+  // Reference data & modal state
   const [products, setProducts] = useState<ProductPick[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<CreateSalePayload["payment_method"]>("cash");
@@ -42,24 +50,36 @@ const Sales = () => {
   const [lines, setLines] = useState<LineForm[]>([{ product_id: "", quantity: "1", unit_price: "0" }]);
   const [saving, setSaving] = useState(false);
 
-  const load = async () => {
+  const finishedInitialRequest = useRef(false);
+
+  // Fetch all sales (client‑side pagination)
+  const loadAll = async () => {
     setLoading(true);
     try {
-      const envelope = await SaleService.list(page);
-      const { items, meta: m } = parseLaravelPage<SaleRow>(envelope);
-      setRows(items);
-      setMeta(m);
+      // Fetch all pages sequentially
+      let all: SaleRow[] = [];
+      let currentPage = 1;
+      let lastPage = 1;
+      do {
+        const envelope = await SaleService.list(currentPage);
+        const { items, meta } = parseLaravelPage<SaleRow>(envelope);
+        all.push(...items);
+        lastPage = meta.last_page;
+        currentPage++;
+      } while (currentPage <= lastPage);
+      setAllRows(all);
     } catch {
       notify.error("Unable to load sales.");
-      setRows([]);
+      setAllRows([]);
     } finally {
       setLoading(false);
+      finishedInitialRequest.current = true;
     }
   };
 
   const loadProducts = async () => {
     try {
-      const pr = (await ProductService.getAll()) as { data?: { items?: ProductPick[] } };
+      const pr = await ProductService.getAll<ProductPick>();
       const items = pr?.data?.items;
       setProducts(
         Array.isArray(items)
@@ -77,12 +97,37 @@ const Sales = () => {
   };
 
   useEffect(() => {
-    void load();
-  }, [page]);
+    void loadAll();
+  }, []);
 
   useEffect(() => {
     void loadProducts();
   }, []);
+
+  // Client‑side filtering
+  const filteredRows = useMemo(() => {
+    if (!search.trim()) return allRows;
+    const term = search.trim().toLowerCase();
+    return allRows.filter(
+      (sale) =>
+        sale.sale_no.toLowerCase().includes(term) ||
+        sale.payment_method.toLowerCase().includes(term) ||
+        sale.status.toLowerCase().includes(term) ||
+        (sale.customer?.name?.toLowerCase().includes(term))
+    );
+  }, [allRows, search]);
+
+  const totalFiltered = filteredRows.length;
+  const totalPages = Math.ceil(totalFiltered / rowsPerPage);
+  const paginatedRows = useMemo(() => {
+    const start = (page - 1) * rowsPerPage;
+    return filteredRows.slice(start, start + rowsPerPage);
+  }, [filteredRows, page]);
+
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
 
   const openCreate = () => {
     setPaymentMethod("cash");
@@ -124,8 +169,7 @@ const Sales = () => {
       });
       notify.success("Sale recorded.");
       setModalOpen(false);
-      setPage(1);
-      void load();
+      await loadAll(); // refresh the full list
     } catch (error) {
       const err = error as AxiosError<{ message?: string }>;
       notify.error(err.response?.data?.message || "Sale failed.");
@@ -147,60 +191,97 @@ const Sales = () => {
       </div>
 
       <div className="rounded-2xl border border-border-muted bg-bg-light p-4 shadow-sm overflow-x-auto">
-        {loading ? (
-          <p className="text-sm text-text-muted py-8 text-center">Loading…</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="text-text-muted">
-              <tr className="border-b border-border-muted">
-                <th className="text-left py-2">Invoice</th>
-                <th className="text-left py-2">Customer</th>
-                <th className="text-left py-2">Payment</th>
-                <th className="text-right py-2">Total</th>
-                <th className="text-left py-2">Status</th>
-                <th className="text-left py-2">Date</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((s) => (
-                <tr key={s.id} className="border-b border-border-muted/40 last:border-b-0">
-                  <td className="py-2 font-mono text-xs font-semibold text-text">{s.sale_no}</td>
-                  <td className="py-2 text-text">{s.customer?.name ?? "Walk-in"}</td>
-                  <td className="py-2 text-text-muted capitalize">{s.payment_method.replace("_", " ")}</td>
-                  <td className="py-2 text-right font-semibold text-text">₱{Number(s.total).toFixed(2)}</td>
-                  <td className="py-2">
-                    <span className="text-xs px-2 py-1 rounded-full bg-success/15 text-success font-bold uppercase">{s.status}</span>
-                  </td>
-                  <td className="py-2 text-text-muted whitespace-nowrap">{new Date(s.created_at).toLocaleString()}</td>
-                </tr>
-              ))}
-              {rows.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="py-8 text-center text-text-muted">
-                    No sales yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        )}
-        {meta.last_page > 1 && (
-          <div className="flex justify-between items-center mt-4 text-sm text-text-muted">
-            <span>
-              Page {meta.current_page} of {meta.last_page}
-            </span>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" disabled={meta.current_page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-                Previous
-              </Button>
-              <Button variant="outline" size="sm" disabled={meta.current_page >= meta.last_page} onClick={() => setPage((p) => p + 1)}>
-                Next
-              </Button>
-            </div>
+        {/* Search input */}
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-end sm:justify-between mb-4">
+          <div className="flex-1 max-w-md">
+            <InputField
+              fullWidth
+              label="Search sales"
+              iconName="FaMagnifyingGlass"
+              placeholder="Invoice, customer, payment, or status"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
-        )}
+        </div>
+
+        <PageShell
+          isInitialLoading={loading && !finishedInitialRequest.current}
+          isFetching={refetching}
+          skeleton={
+            <div className="flex justify-center py-12">
+              <LoadingSpinner size="md" />
+            </div>
+          }
+        >
+          <>
+            <table className="w-full text-sm">
+              <thead className="text-text-muted">
+                <tr className="border-b border-border-muted">
+                  <th className="text-left py-2">Invoice</th>
+                  <th className="text-left py-2">Customer</th>
+                  <th className="text-left py-2">Payment</th>
+                  <th className="text-right py-2">Total</th>
+                  <th className="text-left py-2">Status</th>
+                  <th className="text-left py-2">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedRows.map((s) => (
+                  <tr key={s.id} className="border-b border-border-muted/40 last:border-b-0">
+                    <td className="py-2 font-mono text-xs font-semibold text-text">{s.sale_no}</td>
+                    <td className="py-2 text-text">{s.customer?.name ?? "Walk-in"}</td>
+                    <td className="py-2 text-text-muted capitalize">{s.payment_method.replace("_", " ")}</td>
+                    <td className="py-2 text-right font-semibold text-text">₱{Number(s.total).toFixed(2)}</td>
+                    <td className="py-2">
+                      <span className="text-xs px-2 py-1 rounded-full bg-success/15 text-success font-bold uppercase">
+                        {s.status}
+                      </span>
+                    </td>
+                    <td className="py-2 text-text-muted whitespace-nowrap">{new Date(s.created_at).toLocaleString()}</td>
+                  </tr>
+                ))}
+                {paginatedRows.length === 0 && !loading && (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-text-muted">
+                      {search ? "No matching sales." : "No sales yet."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+
+            {/* Client‑side pagination controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-4 text-sm text-text-muted">
+                <span>
+                  Page {page} of {totalPages} ({totalFiltered} items)
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        </PageShell>
       </div>
 
+      {/* Modal unchanged */}
       <Modal
         isOpen={modalOpen}
         onClose={() => {
@@ -242,7 +323,10 @@ const Sales = () => {
           </div>
           <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
             {lines.map((line, idx) => (
-              <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end rounded-xl border border-border-muted p-3 bg-bg-main/40">
+              <div
+                key={idx}
+                className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end rounded-xl border border-border-muted p-3 bg-bg-main/40"
+              >
                 <div className="md:col-span-5">
                   <Select
                     fullWidth
@@ -256,7 +340,10 @@ const Sales = () => {
                         unit_price: pr ? String(pr.selling_price) : line.unit_price,
                       });
                     }}
-                    options={[{ value: "", label: "Select product" }, ...products.map((p) => ({ value: String(p.id), label: `${p.sku} — ${p.name}` }))]}
+                    options={[
+                      { value: "", label: "Select product" },
+                      ...products.map((p) => ({ value: String(p.id), label: `${p.sku} — ${p.name}` })),
+                    ]}
                   />
                 </div>
                 <div className="md:col-span-2">

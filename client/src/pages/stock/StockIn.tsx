@@ -19,7 +19,7 @@ const StockIn = () => {
   useEffect(() => {
     const run = async () => {
       try {
-        const res = (await ProductService.getAll()) as { data?: { items?: ProductOption[] } };
+        const res = await ProductService.getAll<ProductOption>();
         const items = res?.data?.items;
         setProducts(Array.isArray(items) ? items.map((p) => ({ id: p.id, name: p.name, sku: p.sku })) : []);
       } catch {

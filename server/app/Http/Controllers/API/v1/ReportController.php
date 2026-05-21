@@ -34,49 +34,85 @@ class ReportController extends Controller
         $pdf = Pdf::loadView('reports.summary_pdf', ['report' => $data])
             ->setPaper('a4', 'portrait');
 
-        $filename = sprintf('inventory-summary-%s-to-%s.pdf', $data['period']['from'], $data['period']['to']);
+        $filename = sprintf(
+            'inventory-summary-%s-to-%s.pdf',
+            $data['period']['from'],
+            $data['period']['to']
+        );
 
         return $pdf->download($filename);
     }
 
     /**
-     * NEW: AI Daily Summary endpoint
-     * Calls n8n webhook with report data and returns AI-generated summary.
+     * AI Summary endpoint.
+     * Sends inventory report data to n8n and returns the AI-generated response.
      */
     public function aiSummary(Request $request): JsonResponse
     {
-        // 1. Build report data (reuses your existing logic)
         $reportData = $this->buildSummaryData($request);
 
-        // 2. n8n webhook URL from config
-        $n8nUrl = config('services.n8n.webhook_url', 'http://localhost:5678/webhook/daily-summary');
+        $n8nUrl = config(
+            'services.n8n.webhook_url',
+            'http://localhost:5678/webhook/inventory-ai-report'
+        );
 
         try {
-            $response = Http::timeout(30)->post($n8nUrl, $reportData);
+            $response = Http::acceptJson()
+                ->timeout(30)
+                ->post($n8nUrl, $reportData);
 
-            // 🔍 ADDED LOG: See what n8n returns
             Log::info('n8n AI response', [
-                'status' => $response->status(),
-                'body' => $response->body()
-            ]);
-
-            if ($response->successful()) {
-                // Assume n8n returns JSON with at least a 'summary' field
-                $aiResponse = $response->json();
-                return $this->success([
-                    'summary' => $aiResponse['summary'] ?? $aiResponse,
-                ], 'AI summary generated successfully.');
-            }
-
-            Log::error('n8n AI summary error', [
+                'url' => $n8nUrl,
                 'status' => $response->status(),
                 'body' => $response->body(),
             ]);
 
-            return $this->error('AI service returned an error.', Response::HTTP_INTERNAL_SERVER_ERROR);
-        } catch (\Exception $e) {
-            Log::error('n8n AI summary call failed: ' . $e->getMessage());
-            return $this->error('Could not connect to AI service.', Response::HTTP_SERVICE_UNAVAILABLE);
+            if ($response->successful()) {
+                $aiResponse = $response->json();
+
+                // Fallback if n8n returns plain text or unexpected payload
+                if (!is_array($aiResponse)) {
+                    $aiResponse = [
+                        'summary' => $response->body(),
+                        'report' => [],
+                    ];
+                }
+
+                $report = data_get($aiResponse, 'report', $aiResponse);
+
+                $summary = data_get(
+                    $aiResponse,
+                    'report.summary',
+                    data_get($aiResponse, 'summary', 'No summary generated.')
+                );
+
+                return $this->success([
+                    'summary' => $summary,
+                    'report' => $report,
+                    'raw' => $aiResponse,
+                ], 'AI summary generated successfully.');
+            }
+
+            Log::error('n8n AI summary error', [
+                'url' => $n8nUrl,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            return $this->error(
+                'AI service returned an error.',
+                Response::HTTP_INTERNAL_SERVER_ERROR
+            );
+        } catch (\Throwable $e) {
+            Log::error('n8n AI summary call failed', [
+                'url' => $n8nUrl,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $this->error(
+                'Could not connect to AI service.',
+                Response::HTTP_SERVICE_UNAVAILABLE
+            );
         }
     }
 
@@ -229,11 +265,13 @@ class ReportController extends Controller
         return response()->streamDownload(function () use ($rows): void {
             $out = fopen('php://output', 'w');
             fputcsv($out, ['SKU', 'Name', 'Stock', 'Reorder']);
+
             foreach ($rows as $p) {
                 fputcsv($out, [$p->sku, $p->name, $p->stock_quantity, $p->reorder_level]);
             }
+
             fclose($out);
-        }, 'low-stock-'.now()->format('Y-m-d').'.csv', [
+        }, 'low-stock-' . now()->format('Y-m-d') . '.csv', [
             'Content-Type' => 'text/csv',
         ]);
     }

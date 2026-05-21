@@ -4,52 +4,29 @@ import { jsPDF } from "jspdf";
 
 import MainLayout from "../../components/layouts/MainLayout";
 import { Button, LoadingSpinner } from "../../components/ui";
-import ReportService, { type ReportSummaryPayload } from "../../services/ReportService";
+import ReportService, {
+  type ReportSummaryPayload,
+} from "../../services/ReportService";
 import { PageShell } from "../../components/page/PageShell";
 import { notify } from "../../util/notify";
 
 const dateInputValue = (value: Date) => {
   const local = new Date(value.getTime() - value.getTimezoneOffset() * 60000);
+
   return local.toISOString().slice(0, 10);
 };
 
 const normalizeAiSummaryText = (input: string) => {
   return input
     .replace(/\u00A0/g, " ")
-    .replace(/₱/g, "pesos")
-    .replace(/±/g, "pesos")
-    .split("\n")
-    .map((line) => {
-      const trimmed = line.replace(/\s+/g, " ").trim();
-
-      if (!trimmed) return "";
-
-      const tokens = trimmed.split(" ");
-      const rebuilt: string[] = [];
-      let letterRun: string[] = [];
-
-      const flushRun = () => {
-        if (letterRun.length > 0) {
-          rebuilt.push(letterRun.join(""));
-          letterRun = [];
-        }
-      };
-
-      for (const token of tokens) {
-        if (/^[A-Za-z]$/.test(token)) {
-          letterRun.push(token);
-        } else {
-          flushRun();
-          rebuilt.push(token);
-        }
-      }
-
-      flushRun();
-
-      return rebuilt.join(" ").replace(/\s+([.,;:!?])/g, "$1");
-    })
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
+    .replace(/₱/g, "PHP ")
+    .replace(/±/g, "PHP ")
+    .replace(/pesos(?=\d)/gi, "PHP ")
+    .replace(/([a-zA-Z])(\d)/g, "$1 $2")
+    .replace(/(\d)([a-zA-Z])/g, "$1 $2")
+    .replace(/[^\x00-\x7F]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\. /g, ".\n\n")
     .trim();
 };
 
@@ -215,53 +192,124 @@ const Reports = () => {
   }, [appliedRange.from, appliedRange.to]);
 
   const handleDownloadAiPdf = useCallback(async () => {
-    if (!normalizedAiSummary) {
-      notify.warning("No AI summary to download.");
-      return;
-    }
+  if (!normalizedAiSummary) {
+    notify.warning("No AI summary to download.");
+    return;
+  }
 
-    setIsAiDownloading(true);
+  setIsAiDownloading(true);
 
-    try {
-      const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
-      const title = "AI-Generated Business Summary";
-      const subtitle = `Date Range: ${appliedRange.from} to ${appliedRange.to}`;
-      const content = normalizedAiSummary;
+  try {
+    const pdf = new jsPDF({
+      unit: "mm",
+      format: "a4",
+      orientation: "portrait",
+    });
 
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(18);
-      pdf.text(title, 15, 20);
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
 
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(11);
-      pdf.text(subtitle, 15, 30);
+    const margin = 18;
+    const contentWidth = pageWidth - margin * 2;
 
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const margin = 15;
-      const maxLineWidth = pageWidth - margin * 2;
-      const lines = pdf.splitTextToSize(content ?? "", maxLineWidth);
-      let cursorY = 40;
+    let y = 20;
 
-      pdf.setFontSize(10);
+    // HEADER
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(22);
+    pdf.text("Inventory Analytics Report", margin, y);
+
+    y += 8;
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(11);
+
+    pdf.text(
+      `Reporting Period: ${appliedRange.from} to ${appliedRange.to}`,
+      margin,
+      y
+    );
+
+    y += 6;
+
+    pdf.text(
+      `Generated: ${new Date().toLocaleString()}`,
+      margin,
+      y
+    );
+
+    // LINE
+    y += 8;
+
+    pdf.line(margin, y, pageWidth - margin, y);
+
+    y += 12;
+
+    // SECTION TITLE
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(15);
+    pdf.text("Executive Summary", margin, y);
+
+    y += 8;
+
+    // CONTENT
+    pdf.setFont("times", "normal");
+    pdf.setFontSize(11);
+
+    const paragraphs = normalizedAiSummary
+      .split("\n")
+      .filter((p) => p.trim());
+
+    paragraphs.forEach((paragraph) => {
+      const lines = pdf.splitTextToSize(paragraph, contentWidth);
+
       for (const line of lines) {
-        if (cursorY > pdf.internal.pageSize.getHeight() - 20) {
+        if (y > pageHeight - 25) {
           pdf.addPage();
-          cursorY = 20;
+          y = 20;
         }
 
-        pdf.text(line, margin, cursorY);
-        cursorY += 6;
+        pdf.text(line, margin, y);
+        y += 6;
       }
 
-      pdf.save(`AI_Summary_${appliedRange.from}_to_${appliedRange.to}.pdf`);
-      notify.success("AI Summary PDF downloaded.");
-    } catch (error) {
-      console.error("AI PDF generation failed:", error);
-      notify.error("Failed to generate PDF.");
-    } finally {
-      setIsAiDownloading(false);
+      y += 4;
+    });
+
+    // FOOTER
+    const pageCount = (pdf as any).internal.getNumberOfPages();
+
+    for (let i = 1; i <= pageCount; i++) {
+      pdf.setPage(i);
+
+      pdf.setFontSize(9);
+      pdf.setTextColor(120);
+
+      pdf.text(
+        `Inventory Management System • AI Business Report`,
+        margin,
+        pageHeight - 10
+      );
+
+      pdf.text(
+        `Page ${i} of ${pageCount}`,
+        pageWidth - 40,
+        pageHeight - 10
+      );
     }
-  }, [normalizedAiSummary, appliedRange]);
+
+    pdf.save(
+      `Professional_AI_Report_${appliedRange.from}_to_${appliedRange.to}.pdf`
+    );
+
+    notify.success("Professional AI PDF downloaded.");
+  } catch (error) {
+    console.error(error);
+    notify.error("Failed to generate PDF.");
+  } finally {
+    setIsAiDownloading(false);
+  }
+}, [normalizedAiSummary, appliedRange]);
 
   const fetchAiSummary = useCallback(async () => {
     setIsAiLoading(true);
@@ -275,7 +323,10 @@ const Reports = () => {
         appliedRange.to
       );
 
-      const summaryText = response.data?.data?.summary || "";
+      const summaryText =
+        response.data?.data?.summary ||
+        response.data?.data?.report?.summary ||
+        "";
 
       if (summaryText) {
         setAiSummary(summaryText);
@@ -394,117 +445,117 @@ const Reports = () => {
             ))}
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-8 w-full min-w-0">
-            <section className="rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-clip w-full min-w-0">
-              <h2 className="text-sm font-semibold text-text uppercase tracking-wide mb-3">
-                Low Stock Summary
-              </h2>
+<div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-8 w-full min-w-0">
+  <section className="rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-clip w-full min-w-0">
+    <h2 className="text-sm font-semibold text-text uppercase tracking-wide mb-3">
+      Low Stock Summary
+    </h2>
 
-              <div className="w-full min-w-0 overflow-x-clip">
-                <table className="w-full table-fixed text-sm">
-                  <thead className="text-text-muted">
-                    <tr className="border-b border-border-muted">
-                      <th className="text-left py-2 w-1/4">SKU</th>
-                      <th className="text-left py-2 w-2/5">Product</th>
-                      <th className="text-left py-2 w-1/4">Category</th>
-                      <th className="text-right py-2 w-1/12">Stock</th>
-                    </tr>
-                  </thead>
+    <div className="w-full min-w-0 overflow-x-clip">
+      <table className="w-full table-fixed text-sm">
+        <thead className="text-text-muted">
+          <tr className="border-b border-border-muted">
+            <th className="text-left py-2 w-1/4">SKU</th>
+            <th className="text-left py-2 w-2/5">Product</th>
+            <th className="text-left py-2 w-1/4">Category</th>
+            <th className="text-right py-2 w-1/12">Stock</th>
+          </tr>
+        </thead>
 
-                  <tbody>
-                    {(summary?.low_stock_items ?? []).map((item) => (
-                      <tr
-                        key={item.id}
-                        className="border-b border-border-muted/40 last:border-b-0"
-                      >
-                        <td className="py-2 text-text-muted font-mono text-xs truncate pr-2">
-                          {item.sku}
-                        </td>
+        <tbody>
+          {(summary?.low_stock_items ?? []).map((item) => (
+            <tr
+              key={item.id}
+              className="border-b border-border-muted/40 last:border-b-0"
+            >
+              <td className="py-2 text-text-muted font-mono text-xs truncate pr-2">
+                {item.sku}
+              </td>
 
-                        <td className="py-2 text-text font-medium truncate pr-2">
-                          {item.name}
-                        </td>
+              <td className="py-2 text-text font-medium truncate pr-2">
+                {item.name}
+              </td>
 
-                        <td className="py-2 text-text-muted truncate pr-2">
-                          {item.category}
-                        </td>
+              <td className="py-2 text-text-muted truncate pr-2">
+                {item.category}
+              </td>
 
-                        <td className="py-2 text-right text-warning font-semibold">
-                          {item.stock_quantity}
-                        </td>
-                      </tr>
-                    ))}
+              <td className="py-2 text-right text-warning font-semibold">
+                {item.stock_quantity}
+              </td>
+            </tr>
+          ))}
 
-                    {(summary?.low_stock_items?.length ?? 0) === 0 && (
-                      <tr>
-                        <td
-                          className="py-4 text-text-muted text-center"
-                          colSpan={4}
-                        >
-                          No low stock items.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
+          {(summary?.low_stock_items?.length ?? 0) === 0 && (
+            <tr>
+              <td
+                className="py-4 text-text-muted text-center"
+                colSpan={4}
+              >
+                No low stock items.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  </section>
 
-            <section className="rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-clip w-full min-w-0">
-              <h2 className="text-sm font-semibold text-text uppercase tracking-wide mb-3">
-                Recent Sales Summary
-              </h2>
+  <section className="rounded-2xl border border-border-muted bg-bg-light p-4 overflow-x-clip w-full min-w-0">
+    <h2 className="text-sm font-semibold text-text uppercase tracking-wide mb-3">
+      Recent Sales Summary
+    </h2>
 
-              <div className="w-full min-w-0 overflow-x-clip">
-                <table className="w-full table-fixed text-sm">
-                  <thead className="text-text-muted">
-                    <tr className="border-b border-border-muted">
-                      <th className="text-left py-2 w-1/4">Sale No</th>
-                      <th className="text-left py-2 w-1/3">Customer</th>
-                      <th className="text-right py-2 w-1/5">Total</th>
-                      <th className="text-left py-2 w-1/5">Status</th>
-                    </tr>
-                  </thead>
+    <div className="w-full min-w-0 overflow-x-clip">
+      <table className="w-full table-fixed text-sm">
+        <thead className="text-text-muted">
+          <tr className="border-b border-border-muted">
+            <th className="text-left py-2 w-1/4">Sale No</th>
+            <th className="text-left py-2 w-1/3">Customer</th>
+            <th className="text-right py-2 w-1/5">Total</th>
+            <th className="text-left py-2 w-1/5">Status</th>
+          </tr>
+        </thead>
 
-                  <tbody>
-                    {(summary?.recent_sales ?? []).map((sale) => (
-                      <tr
-                        key={sale.id}
-                        className="border-b border-border-muted/40 last:border-b-0"
-                      >
-                        <td className="py-2 text-text font-mono text-xs truncate pr-2">
-                          {sale.sale_no}
-                        </td>
+        <tbody>
+          {(summary?.recent_sales ?? []).map((sale) => (
+            <tr
+              key={sale.id}
+              className="border-b border-border-muted/40 last:border-b-0"
+            >
+              <td className="py-2 text-text font-mono text-xs truncate pr-2">
+                {sale.sale_no}
+              </td>
 
-                        <td className="py-2 text-text-muted truncate pr-2">
-                          {sale.customer ?? "Walk-in"}
-                        </td>
+              <td className="py-2 text-text-muted truncate pr-2">
+                {sale.customer ?? "Walk-in"}
+              </td>
 
-                        <td className="py-2 text-right text-text">
-                          ₱{Number(sale.total).toFixed(2)}
-                        </td>
+              <td className="py-2 text-right text-text">
+                ₱{Number(sale.total).toFixed(2)}
+              </td>
 
-                        <td className="py-2 text-text-muted capitalize">
-                          {sale.status}
-                        </td>
-                      </tr>
-                    ))}
+              <td className="py-2 text-text-muted capitalize">
+                {sale.status}
+              </td>
+            </tr>
+          ))}
 
-                    {(summary?.recent_sales?.length ?? 0) === 0 && (
-                      <tr>
-                        <td
-                          className="py-4 text-text-muted text-center"
-                          colSpan={4}
-                        >
-                          No sales in selected range.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </div>
+          {(summary?.recent_sales?.length ?? 0) === 0 && (
+            <tr>
+              <td
+                className="py-4 text-text-muted text-center"
+                colSpan={4}
+              >
+                No sales in selected range.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
         </>
       </PageShell>
 

@@ -36,7 +36,7 @@ return [
     ],
 
     'n8n' => [
-        'webhook_url' => env('N8N_WEBHOOK_URL', 'http://localhost:5678/webhook/daily-summary'),
+        'webhook_url' => env('N8N_WEBHOOK_URL', 'http://localhost:5678/webhook/inventory-ai-report'),
     ],
 
 ];

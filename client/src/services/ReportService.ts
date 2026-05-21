@@ -44,8 +44,17 @@ export type AiSummaryResponse = {
   message: string;
   data: {
     summary: string;
+    report?: {
+      summary?: string;
+      inventory_health?: string;
+      critical_items?: string[];
+      sales_insights?: string[];
+      recommendations?: string[];
+      action_required?: boolean;
+    };
+    raw?: unknown;
   };
-};
+}; 
 
 const downloadBlobPdf = async (
   blob: Blob,

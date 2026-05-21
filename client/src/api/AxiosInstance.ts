@@ -5,7 +5,7 @@ import { PATHS } from "../routes/path";
 import { dispatchSessionExpired } from "../auth/sessionEvents";
 
 const AxiosInstance = axios.create({
-  baseURL: `${import.meta.env.VITE_API_URL}/api`,
+  baseURL: `${(import.meta.env.VITE_API_URL ?? "http://localhost:8000").replace(/\/$/, "")}/api`,
   withCredentials: true,
   xsrfCookieName: "XSRF-TOKEN",
   xsrfHeaderName: "X-XSRF-TOKEN",

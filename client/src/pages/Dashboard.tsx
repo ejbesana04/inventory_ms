@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import type { AxiosError } from "axios";
 import MainLayout from "../components/layouts/MainLayout";
 import { DashboardSkeleton } from "../components/page/DashboardSkeleton";
 import { PageShell } from "../components/page/PageShell";
 import { Button, Icon, Modal } from "../components/ui/index";
 import { InputField, Select, TextArea } from "../components/ui/forms";
-import { PATHS } from "../routes/path";
 import { notify } from "../util/notify";
 import ProductService from "../services/ProductService";
 import CategoryService, { type Category } from "../services/CategoryService";
@@ -32,7 +30,6 @@ interface NewCategoryFormState {
 }
 
 const Dashboard = () => {
-  const navigate = useNavigate();
   const [isNewProductModalOpen, setIsNewProductModalOpen] = useState(false);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [isSavingCategory, setIsSavingCategory] = useState(false);

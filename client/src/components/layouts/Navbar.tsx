@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { PATHS } from "../../routes/path";
-import { Icon, Button } from "../ui";
+import { Icon } from "../ui";
 import { useAuth } from "../../contexts/AuthContext";
 
 interface NavbarProps {
@@ -9,7 +9,7 @@ interface NavbarProps {
 }
 
 const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
   return (
     <nav className="fixed top-0 z-50 w-full bg-bg-light/95 backdrop-blur border-b border-border-muted">

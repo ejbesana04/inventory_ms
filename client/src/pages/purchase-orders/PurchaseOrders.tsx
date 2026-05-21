@@ -56,7 +56,9 @@ const PurchaseOrders = () => {
 
   // Fetch all purchase orders (client‑side pagination)
   const loadAll = async () => {
-    setLoading(true);
+    const isRefresh = finishedInitialRequest.current;
+    setLoading(!isRefresh);
+    setRefetching(isRefresh);
     try {
       // Fetch all pages sequentially using existing list(page)
       let all: PurchaseOrderRow[] = [];
@@ -75,6 +77,7 @@ const PurchaseOrders = () => {
       setAllRows([]);
     } finally {
       setLoading(false);
+      setRefetching(false);
       finishedInitialRequest.current = true;
     }
   };

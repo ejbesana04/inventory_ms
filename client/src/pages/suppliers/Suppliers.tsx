@@ -37,7 +37,9 @@ const Suppliers = () => {
 
   // Load all suppliers once
   const loadAllSuppliers = async () => {
-    setLoading(true);
+    const isRefresh = finishedInitialRequest.current;
+    setLoading(!isRefresh);
+    setRefetching(isRefresh);
     try {
       const res = (await SupplierService.getAll()) as { data?: Supplier[] };
       setAllSuppliers(Array.isArray(res?.data) ? res.data : []);
@@ -46,6 +48,7 @@ const Suppliers = () => {
       setAllSuppliers([]);
     } finally {
       setLoading(false);
+      setRefetching(false);
       finishedInitialRequest.current = true;
     }
   };

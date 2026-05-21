@@ -73,6 +73,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('permission:sales.manage')->group(function () {
         Route::get('v1/sales', [SaleController::class, 'index']);
         Route::post('v1/sales', [SaleController::class, 'store']);
+        Route::post('v1/sales/ai-analysis', [SaleController::class, 'aiAnalysis']);
     });
 
     Route::middleware('permission:dashboard.view')->group(function () {

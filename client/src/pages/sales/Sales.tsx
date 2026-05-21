@@ -30,6 +30,116 @@ const paymentOptions: { value: CreateSalePayload["payment_method"]; label: strin
   { value: "bank_transfer", label: "Bank transfer" },
 ];
 
+const extractAnalysisText = (payload: unknown): string => {
+  const value = Array.isArray(payload) ? payload[0] : payload;
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  const record = value as Record<string, unknown>;
+  const candidates = [
+    record.data && typeof record.data === "object" ? (record.data as Record<string, unknown>).analysis : undefined,
+    record.data && typeof record.data === "object" ? (record.data as Record<string, unknown>).response : undefined,
+    record.data && typeof record.data === "object" ? (record.data as Record<string, unknown>).output : undefined,
+    record.data && typeof record.data === "object" ? (record.data as Record<string, unknown>).text : undefined,
+    record.data && typeof record.data === "object" ? (record.data as Record<string, unknown>).summary : undefined,
+    record.analysis,
+    record.output,
+    record.text,
+    record.summary,
+    record.response,
+    record.message,
+    record.content,
+  ];
+
+  const nestedReport = record.report;
+  if (nestedReport && typeof nestedReport === "object") {
+    candidates.push((nestedReport as Record<string, unknown>).summary);
+  }
+
+  return candidates.find((item): item is string => typeof item === "string") ?? "";
+};
+
+const renderInlineAnalysisText = (text: string) => {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+
+  return parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return (
+        <strong key={`${part}-${index}`} className="font-semibold text-text">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+
+    return <span key={`${part}-${index}`}>{part}</span>;
+  });
+};
+
+const renderSalesAnalysis = (text: string) => {
+  const lines = text
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return lines.map((line, index) => {
+    const heading = line
+      .replace(/^#{1,6}\s*/, "")
+      .replace(/^\*\*(.+)\*\*:?\s*$/, "$1")
+      .trim();
+
+    if (/^#{1,6}\s+/.test(line)) {
+      return (
+        <h3 key={`${line}-${index}`} className="text-base font-bold text-primary">
+          {heading}
+        </h3>
+      );
+    }
+
+    if (/^\*\*.+\*\*:?\s*$/.test(line)) {
+      return (
+        <h4 key={`${line}-${index}`} className="pt-3 text-sm font-bold uppercase tracking-wide text-text-muted">
+          {heading}
+        </h4>
+      );
+    }
+
+    const bulletMatch = line.match(/^[-*]\s+(.+)$/);
+    if (bulletMatch) {
+      return (
+        <div key={`${line}-${index}`} className="flex gap-3 text-sm leading-6 text-text">
+          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+          <p>{renderInlineAnalysisText(bulletMatch[1])}</p>
+        </div>
+      );
+    }
+
+    const numberedMatch = line.match(/^(\d+)\.\s+(.+)$/);
+    if (numberedMatch) {
+      return (
+        <div key={`${line}-${index}`} className="flex gap-3 text-sm leading-6 text-text">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+            {numberedMatch[1]}
+          </span>
+          <p>{renderInlineAnalysisText(numberedMatch[2])}</p>
+        </div>
+      );
+    }
+
+    return (
+      <p key={`${line}-${index}`} className="text-sm leading-6 text-text">
+        {renderInlineAnalysisText(line)}
+      </p>
+    );
+  });
+};
+
 const Sales = () => {
   // All sales (loaded once)
   const [allRows, setAllRows] = useState<SaleRow[]>([]);
@@ -49,12 +159,18 @@ const Sales = () => {
   const [tax, setTax] = useState("0");
   const [lines, setLines] = useState<LineForm[]>([{ product_id: "", quantity: "1", unit_price: "0" }]);
   const [saving, setSaving] = useState(false);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisText, setAnalysisText] = useState("");
+  const [analysisError, setAnalysisError] = useState("");
 
   const finishedInitialRequest = useRef(false);
 
   // Fetch all sales (client‑side pagination)
   const loadAll = async () => {
-    setLoading(true);
+    const isRefresh = finishedInitialRequest.current;
+    setLoading(!isRefresh);
+    setRefetching(isRefresh);
     try {
       // Fetch all pages sequentially
       let all: SaleRow[] = [];
@@ -73,6 +189,7 @@ const Sales = () => {
       setAllRows([]);
     } finally {
       setLoading(false);
+      setRefetching(false);
       finishedInitialRequest.current = true;
     }
   };
@@ -137,6 +254,33 @@ const Sales = () => {
     setModalOpen(true);
   };
 
+  const generateSalesAnalysis = async () => {
+    setAnalysisOpen(true);
+    setAnalysisLoading(true);
+    setAnalysisText("");
+    setAnalysisError("");
+
+    try {
+      const payload = await SaleService.aiAnalysis();
+      const analysis = extractAnalysisText(payload);
+
+      if (!analysis?.trim()) {
+        throw new Error("AI workflow completed, but no analysis was returned.");
+      }
+
+      setAnalysisText(analysis.trim());
+    } catch (error) {
+      const axiosError = error as AxiosError<{ message?: string }>;
+      const message =
+        axiosError.response?.data?.message ||
+        (error instanceof Error ? error.message : "Unable to generate sales analysis.");
+      setAnalysisError(message);
+      notify.error(message);
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
+
   const addLine = () => setLines((prev) => [...prev, { product_id: "", quantity: "1", unit_price: "0" }]);
 
   const updateLine = (index: number, patch: Partial<LineForm>) => {
@@ -185,9 +329,20 @@ const Sales = () => {
           <h1 className="text-2xl font-bold text-text">Sales</h1>
           <p className="text-sm text-text-muted">Record completed sales and deduct stock automatically.</p>
         </div>
-        <Button variant="primary" iconName="FaPlus" onClick={openCreate}>
-          New sale
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+          <Button
+            variant="outline"
+            iconName="FaRobot"
+            onClick={() => void generateSalesAnalysis()}
+            isLoading={analysisLoading}
+            loadingText="Analyzing"
+          >
+            Generate AI Sales Analysis
+          </Button>
+          <Button variant="primary" iconName="FaPlus" onClick={openCreate}>
+            New sale
+          </Button>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-border-muted bg-bg-light p-4 shadow-sm overflow-x-auto">
@@ -375,6 +530,38 @@ const Sales = () => {
               </div>
             ))}
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={analysisOpen}
+        onClose={() => {
+          if (!analysisLoading) setAnalysisOpen(false);
+        }}
+        title="AI Sales Analysis"
+        size="lg"
+        secondaryAction={{
+          label: "Close",
+          onClick: () => setAnalysisOpen(false),
+          variant: "outline",
+        }}
+      >
+        <div className="space-y-4 not-italic">
+          {analysisLoading ? (
+            <div className="rounded-2xl border border-border-muted bg-bg-main p-6 text-center">
+              <LoadingSpinner size="md" />
+              <p className="mt-3 text-sm font-semibold text-text-muted">Generating sales analysis...</p>
+            </div>
+          ) : analysisError ? (
+            <div className="rounded-2xl border border-danger/25 bg-danger/10 p-4">
+              <p className="text-sm font-semibold text-danger">Workflow failed</p>
+              <p className="mt-2 text-sm text-text">{analysisError}</p>
+            </div>
+          ) : (
+            <div className="max-h-[54vh] overflow-y-auto rounded-2xl border border-border-muted bg-bg-main p-5">
+              <div className="space-y-3">{renderSalesAnalysis(analysisText)}</div>
+            </div>
+          )}
         </div>
       </Modal>
     </div>

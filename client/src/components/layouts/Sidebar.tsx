@@ -22,16 +22,14 @@ const Sidebar: React.FC<{ isOpen: boolean }> = ({ isOpen }) => {
     return location.pathname === target || location.pathname.startsWith(`${target}/`);
   };
 
-  // Find logout item (if any) to extract it
-  let logoutItem: AppNavItem | null = null;
+  const logoutItem = NAV_GROUPS.flatMap((group) => group.items).find(
+    (item): item is AppNavItem & { action: "logout" } => item.action === "logout"
+  );
+
   const filteredGroups = NAV_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter((item) => {
-      if (item.action === "logout") {
-        logoutItem = item;
-        return false; // remove from group
-      }
-      return true;
+      return item.action !== "logout";
     }),
   }));
 

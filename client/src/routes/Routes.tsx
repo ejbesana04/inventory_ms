@@ -5,6 +5,8 @@ import { PATHS } from "./path";
 import { ProtectedLayout, RoleProtectedLayout, RootRedirect } from "./AuthGuards";
 import { LoadingSpinner } from "../components/ui";
 import { NAV_GROUPS } from "../navigation/modules";
+// import { NAV_GROUPS } from "../navigation/modules";
+// const placeholderRoutes = ...
 
 const Dashboard = React.lazy(() => import("../pages/Dashboard"));
 const Users = React.lazy(() => import("../pages/users/Users"));

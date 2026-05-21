@@ -1,10 +1,10 @@
 import axios, { type InternalAxiosRequestConfig } from "axios";
 import { getCookie } from "../util/cookies";
 
-const origin = (import.meta.env.VITE_API_URL as string).replace(/\/$/, "");
+const API_ORIGIN = (import.meta.env.VITE_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
 const webClient = axios.create({
-  baseURL: origin,
+  baseURL: API_ORIGIN,
   withCredentials: true,
   xsrfCookieName: "XSRF-TOKEN",
   xsrfHeaderName: "X-XSRF-TOKEN",

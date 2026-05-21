@@ -3,7 +3,7 @@ import { notify } from "../util/notify";
 
 type HandleRequestOptions = {
     returnFullResponse?: boolean;
-    silentStatuses?: number[];
+    silentStatuses?: readonly number[];
 };
 
 export async function handleRequest<T>(

@@ -15,6 +15,12 @@ export type CreateSalePayload = {
   items: SaleLineInput[];
 };
 
+export type SalesAnalysisResponse = {
+  data?: {
+    analysis?: string;
+  };
+};
+
 const PREFIX = "v1/sales";
 
 const SaleService = {
@@ -24,6 +30,15 @@ const SaleService = {
     handleRequest(AxiosInstance.post(PREFIX, payload), "Failed to record sale", {
       silentStatuses: [400, 401, 422, 500, 503],
     }),
+
+  aiAnalysis: () =>
+    handleRequest<SalesAnalysisResponse>(
+      AxiosInstance.post(`${PREFIX}/ai-analysis`),
+      "Failed to generate sales analysis",
+      {
+        silentStatuses: [400, 401, 422, 502, 503],
+      }
+    ),
 };
 
 export default SaleService;

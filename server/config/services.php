@@ -37,6 +37,7 @@ return [
 
     'n8n' => [
         'webhook_url' => env('N8N_WEBHOOK_URL', 'http://localhost:5678/webhook/inventory-ai-report'),
+        'sales_analysis_webhook_url' => env('N8N_SALES_ANALYSIS_WEBHOOK_URL', 'http://localhost:5678/webhook/generate-sales-analysis'),
     ],
 
 ];

@@ -12,7 +12,10 @@ use App\Traits\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\Response;
 
 class SaleController extends Controller
 {
@@ -110,5 +113,127 @@ class SaleController extends Controller
         ActivityLogger::log('sale.create', "Recorded sale {$sale->sale_no}", $sale);
 
         return $this->success($sale, 'Sale completed.', 201);
+    }
+
+    public function aiAnalysis(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date', 'after_or_equal:from'],
+        ]);
+
+        $salesQuery = Sale::query()
+            ->with(['customer:id,name', 'saleItems.product:id,name,sku,stock_quantity'])
+            ->latest();
+
+        if (! empty($data['from'])) {
+            $salesQuery->whereDate('created_at', '>=', $data['from']);
+        }
+
+        if (! empty($data['to'])) {
+            $salesQuery->whereDate('created_at', '<=', $data['to']);
+        }
+
+        $sales = $salesQuery->limit(200)->get();
+
+        $payload = [
+            'generated_at' => now()->toISOString(),
+            'totals' => [
+                'sales_count' => $sales->count(),
+                'total_revenue' => (float) $sales->sum('total'),
+            ],
+            'sales' => $sales->map(fn (Sale $sale) => [
+                'sale_no' => $sale->sale_no,
+                'customer' => $sale->customer?->name ?? 'Walk-in',
+                'payment_method' => $sale->payment_method,
+                'status' => $sale->status,
+                'total' => (float) $sale->total,
+                'created_at' => $sale->created_at?->toISOString(),
+                'items' => $sale->saleItems->map(fn (SaleItem $item) => [
+                    'product_name' => $item->product?->name ?? 'Unknown product',
+                    'sku' => $item->product?->sku,
+                    'quantity' => (int) $item->quantity,
+                    'unit_price' => (float) $item->unit_price,
+                    'line_total' => (float) $item->line_total,
+                    'current_stock' => $item->product?->stock_quantity,
+                ])->values(),
+            ])->values(),
+        ];
+
+        $n8nUrl = config('services.n8n.sales_analysis_webhook_url');
+
+        try {
+            $response = Http::acceptJson()
+                ->timeout(60)
+                ->post($n8nUrl, $payload);
+
+            Log::info('n8n sales analysis response', [
+                'url' => $n8nUrl,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            if (! $response->successful()) {
+                return $this->error(
+                    'AI sales analysis service returned an error.',
+                    Response::HTTP_BAD_GATEWAY
+                );
+            }
+
+            $analysis = $this->extractAiAnalysis($response);
+
+            if ($analysis === '') {
+                return $this->error(
+                    'AI workflow completed, but no analysis was returned.',
+                    Response::HTTP_BAD_GATEWAY
+                );
+            }
+
+            return $this->success([
+                'analysis' => $analysis,
+            ], 'AI sales analysis generated successfully.');
+        } catch (\Throwable $e) {
+            Log::error('n8n sales analysis call failed', [
+                'url' => $n8nUrl,
+                'error' => $e->getMessage(),
+            ]);
+
+            return $this->error(
+                'Could not connect to AI sales analysis service.',
+                Response::HTTP_SERVICE_UNAVAILABLE
+            );
+        }
+    }
+
+    private function extractAiAnalysis(\Illuminate\Http\Client\Response $response): string
+    {
+        $body = trim($response->body());
+
+        if ($body === '') {
+            return '';
+        }
+
+        $json = $response->json();
+        $payload = is_array($json) ? $json : $body;
+
+        if (array_is_list($payload) && isset($payload[0]) && is_array($payload[0])) {
+            $payload = $payload[0];
+        }
+
+        if (is_string($payload)) {
+            return trim($payload);
+        }
+
+        foreach (['analysis', 'response', 'output', 'text', 'summary', 'message', 'content'] as $key) {
+            $value = data_get($payload, $key);
+
+            if (is_string($value) && trim($value) !== '') {
+                return trim($value);
+            }
+        }
+
+        $nestedSummary = data_get($payload, 'report.summary');
+
+        return is_string($nestedSummary) ? trim($nestedSummary) : '';
     }
 }
